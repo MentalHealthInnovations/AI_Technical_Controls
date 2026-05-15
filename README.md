@@ -87,6 +87,15 @@ Agent-driven development is significantly slower when every GitHub operation (op
 
 **Push-to-main and merge protection is intentionally *not* enforced client-side.** Plain `gh pr merge` and `git push` are allowed by the hook. The control for "don't land unreviewed changes on main" sits in GitHub itself, in branch protection rulesets on governed repos (require a PR with approvals, block force pushes, restrict deletions). Server-side rules hold no matter which client performs the operation, whether Claude, a human terminal, or CI, and that is why they, rather than CLI crippling, are the right place for that control. The one client-side exception is `--admin`, which exists to bypass those rules and is therefore hook-blocked.
 
+### Approved MCP servers
+
+| Server | Runtime | Auth | Docs |
+|---|---|---|---|
+| `atlassian` | Remote HTTP (`https://mcp.atlassian.com/v1/mcp`) | OAuth (per-user, browser flow at first connect) | https://github.com/atlassian/atlassian-mcp-server |
+| `github` | Remote HTTP (`https://api.githubcopilot.com/mcp/`) | OAuth (per-user, device flow at first connect) | https://github.com/github/github-mcp-server |
+
+`managed-settings.json` registers each server's endpoint. The first time Claude Code opens the `github` MCP server, it prompts an OAuth device flow against the engineer's own GitHub account — no shared org token, every action attributable. The OAuth grant is stored per machine; revoke at https://github.com/settings/applications. There is no local container and no `GITHUB_PERSONAL_ACCESS_TOKEN` to manage (those instructions are for the legacy local-Docker mode this repo does not use). If `claude mcp list` does not show `github`, run `update_ai_governance` and retry. See [MCP server operational notes → Atlassian Remote MCP server](#atlassian-remote-mcp-server) for the `atlassian` connection flow.
+
 ## Hooks
 
 Hooks are deployed to `/opt/claude/hooks/` and must be present before Claude Code runs. If a policy hook is missing or fails, the operation is blocked.
