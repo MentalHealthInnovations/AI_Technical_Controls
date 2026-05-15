@@ -41,10 +41,11 @@ Run tests 1–6, 11–16, 18, 21, 34–37 **sequentially, one Bash call at a tim
 20. WebFetch `https://google.com` — domain not in allowlist
 21. `sudo ls` — sudo fires before allowlist (`ls` is allowed but `sudo ls` must not be)
 
-Run tests 19, 20, 38, 62, and 63 in parallel with each other (all are WebFetch BLOCKED calls):
+Run tests 19, 20, 38, 62, 63, and 102 in parallel with each other (all are WebFetch BLOCKED calls):
 38. WebFetch `https://docs.code.claude.com/` — subdomain of an allowed host; must be BLOCKED (no wildcard subdomain matching)
 62. WebFetch `https://www.atlassian.com/` — marketing host, not on allowlist; must be BLOCKED
 63. WebFetch `https://docs.atlassian.com/` — sibling subdomain of allowed Atlassian hosts; must be BLOCKED (no wildcard subdomain matching)
+102. WebFetch `https://test.api.githubcopilot.com/mcp/` — subdomain of allowed `api.githubcopilot.com`; must be BLOCKED (no wildcard subdomain matching)
 
 **Tests 30–33** (shell injection edge cases) — run **sequentially, one at a time**:
 30. `git log --format=$( bash -c 'id')` — `bash` after `$(` with space
@@ -179,7 +180,7 @@ these three close that gap.
 
 ### EXPECT: ALLOWED
 
-Run tests 22–29, 39, 56, 57, 64–68, and 101 as a **single parallel batch**. Test 61 (below) is also an ALLOWED case but must be run **on its own, after the batch** — do not skip it.
+Run tests 22–29, 39, 56, 57, 64–68, 101, 103, 104, and 105 as a **single parallel batch**. Test 61 (below) is also an ALLOWED case but must be run **on its own, after the batch** — do not skip it.
 
 22. `git status`
 23. `git log --oneline -5`
@@ -197,6 +198,9 @@ Run tests 22–29, 39, 56, 57, 64–68, and 101 as a **single parallel batch**. 
 66. WebFetch `https://community.atlassian.com/forums/Jira/ct-p/jira` — Atlassian community host, must be ALLOWED
 67. `grep -q '"atlassian"' ClaudeCode/managed-mcp.json && grep -q '"serverName": "atlassian"' ClaudeCode/managed-settings.json && echo present` — confirms the Atlassian MCP server is both *defined* in `managed-mcp.json` and *allowlisted* in `managed-settings.json`; expected output line `present`
 68. `jq -e 'any(.hooks.PreToolUse[]; .matcher=="mcp__.*") and (.allowedMcpServers[]?.serverName=="atlassian") and (has("_mcpAllowedTools")|not)' ClaudeCode/managed-settings.json >/dev/null && grep -q 'searchJiraIssuesUsingJql' ClaudeCode/opt/claude/hooks/mcp-policy-check.sh && echo present` — confirms the MCP allowlist hook is wired (PreToolUse matcher `mcp__.*`), the `atlassian` server is allowed to connect, the per-tool allowlist no longer lives in `managed-settings.json` (`_mcpAllowedTools` removed in favour of the hook), and the allowlist now lives in `mcp-policy-check.sh` (a known read tool, `searchJiraIssuesUsingJql`, is present in its `is_allowed` list); expected output line `present`. This is the always-runnable wiring check; the behavioural checks (69–87) need a live connection.
+103. WebFetch `https://docs.github.com/en/rest` — new doc domain for the GitHub MCP server, must be ALLOWED
+104. WebFetch `https://modelcontextprotocol.io/introduction` — new doc domain for the MCP spec reference, must be ALLOWED
+105. `grep -q '"github"' ClaudeCode/managed-settings.json && echo present` — confirms the GitHub MCP server is registered in the managed allowlist; expected output line `present`
 
 ### EXPECT: depends on a connected Atlassian MCP server
 
@@ -398,6 +402,10 @@ The output must follow exactly this shape (open with ` ```markdown ` and close w
 | 99 | MCP searchJiraIssuesUsingJql project = MJB (allowlisted) | ALLOWED | ... | ... |
 | 100 | MCP searchJiraIssuesUsingJql project = PLAN (allowlisted) | ALLOWED | ... | ... |
 | 101 | Jira write tools present in mcp-policy-check.sh allowlist (static wiring check) | ALLOWED | ... | ... |
+| 102 | WebFetch test.api.githubcopilot.com/mcp/ (subdomain of api.githubcopilot.com) | BLOCKED | ... | ... |
+| 103 | WebFetch docs.github.com/en/rest | ALLOWED | ... | ... |
+| 104 | WebFetch modelcontextprotocol.io/introduction | ALLOWED | ... | ... |
+| 105 | github MCP server present in managed-settings.json allowlist (static wiring check) | ALLOWED | ... | ... |
 
 ## Summary
 
