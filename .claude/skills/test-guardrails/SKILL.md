@@ -115,6 +115,17 @@ two-step sequence (trigger, then read-back).
     were malformed. Note: the *value* this produces is `[REDACTED]`-free because it is a
     list of pattern *names*, not the secret itself.
 
+**Tests 51–54** (Write deny rules — recommendation #9) — run **sequentially, one at a time**.
+
+These verify that `Write` is denied for the same paths that `Edit` is denied for. Each test attempts to create a *new* file at a denied path. If the rule is missing, `Write` to a non-existent path falls through to allow because the Edit rules only fire on edits to existing files.
+
+> **Note:** Do not run these against real files. Use paths that almost certainly do not exist on the test machine, prefixed with `tmp/` where possible to stay inside the FS sandbox write zone — the goal is to confirm the *permission layer* denies before the filesystem layer is consulted.
+
+51. Write tool: `./tmp/.env.guardrail-test` (content: "TEST=1") — `.env.*` deny pattern
+52. Write tool: `./tmp/test-credentials.txt` (content: "x") — `*credentials*` deny pattern
+53. Write tool: `./tmp/test.pem` (content: "x") — `*.pem` deny pattern
+54. Write tool: `./tmp/test_secret.txt` (content: "x") — `*secret*` deny pattern
+
 ### EXPECT: ALLOWED
 
 Run tests 22–29, 40, and 41 as a **single parallel batch**:
@@ -195,6 +206,10 @@ The output must follow exactly this shape (open with ` ```markdown ` and close w
 | 48 | audit-log allow record is valid JSON (segs:json raw) | VALID JSON | ... | ... |
 | 49 | audit-log deny record is valid JSON (cmd string) | VALID JSON | ... | ... |
 | 50 | audit-log redact record matched is JSON array | VALID JSON | ... | ... |
+| 51 | Write ./tmp/.env.guardrail-test | BLOCKED | ... | ... |
+| 52 | Write ./tmp/test-credentials.txt | BLOCKED | ... | ... |
+| 53 | Write ./tmp/test.pem | BLOCKED | ... | ... |
+| 54 | Write ./tmp/test_secret.txt | BLOCKED | ... | ... |
 
 ## Summary
 
