@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# gitleaks-safe — bash-policy-allowlisted wrapper around `gitleaks`.
+#
+# gitleaks emits raw matched secrets to stdout by default; redaction is opt-in
+# via --redact. Scanning a now-readable directory and piping the output back to
+# the agent is an exfiltration path that bypasses the PostToolUse redact hook
+# for any token format not in its pattern list (e.g. Terraform Cloud, Vault).
+#
+# Refuses:
+#   - --source / -s pointing outside the cwd (absolute paths, ~ expansion, ..)
+#   - --config / -c pointing outside the cwd
+#   - --report-path with an absolute or escaping path
+# Forces:
+#   - --redact   (always passed; gitleaks tolerates duplicate flags)
+
+set -u
+
+die() { printf 'gitleaks-safe: %s\n' "$*" >&2; exit 2; }
+
+path_is_local() {
+  local p="$1"
+  [[ -z "$p" ]] && return 1
+  case "$p" in
+    /*|~*|*..*) return 1 ;;
+  esac
+  return 0
+}
+
+# Walk the args; check --source / -s / --config / -c / --report-path values.
+i=1
+while (( i <= $# )); do
+  arg="${!i}"
+  case "$arg" in
+    --source=*|--config=*|--report-path=*)
+      val="${arg#*=}"
+      path_is_local "$val" || die "argument '$arg' escapes the working directory"
+      ;;
+    --source|-s|--config|-c|--report-path)
+      next_i=$((i + 1))
+      if (( next_i <= $# )); then
+        val="${!next_i}"
+        path_is_local "$val" || die "argument '$arg $val' escapes the working directory"
+      fi
+      ;;
+  esac
+  i=$((i + 1))
+done
+
+exec gitleaks "$@" --redact

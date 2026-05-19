@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# terraform-safe — bash-policy-allowlisted wrapper around `terraform`/`terragrunt`.
+#
+# Allows only the read-only/validate subcommands needed by the pre-commit
+# terraform hooks (terraform_fmt, terraform_validate, terraform_docs, ...) and
+# refuses anything that fetches modules, executes provider binaries, or talks
+# to remote state. Subprocesses launched by terraform (provider plugins) bypass
+# the bash-policy hook because they are exec'd directly, so the only effective
+# defence is to refuse the subcommands that would launch them.
+#
+# Refuses (terraform):
+#   init, plan, apply, destroy, import, console, login, refresh,
+#   providers mirror, state push, state rm, state replace-provider,
+#   workspace new, workspace delete, taint, untaint, force-unlock
+# Refuses (terragrunt): same set; terragrunt is a wrapper that calls terraform.
+#
+# Allows:
+#   fmt, validate, version, providers schema, providers lock,
+#   state list, state show, output, show, graph, --help / help / -h
+#
+# Sets:
+#   TF_PLUGIN_CACHE_DIR=$(pwd)/.terraform-plugin-cache  (per-repo, not user-global)
+#   TF_INPUT=0  (never prompt; non-interactive)
+#   TF_IN_AUTOMATION=1
+#   TF_CLI_CONFIG_FILE=/dev/null  (refuse any user ~/.terraformrc or cli.tfrc)
+
+set -u
+
+die() { printf '%s: %s\n' "$(basename "$0")" "$*" >&2; exit 2; }
+
+case "$(basename "$0")" in
+  terragrunt-safe) bin="terragrunt" ;;
+  *)               bin="terraform" ;;
+esac
+
+# First non-flag argument is the subcommand. Some terraform subcommands are
+# two-word (e.g. `state list`, `providers lock`); read up to two leading non-flag
+# tokens for matching.
+sub1="" sub2=""
+for arg in "$@"; do
+  case "$arg" in
+    -*) ;;
+    *)  if [[ -z "$sub1" ]]; then sub1="$arg"
+        elif [[ -z "$sub2" ]]; then sub2="$arg"; break
+        fi ;;
+  esac
+done
+joined="$sub1${sub2:+ $sub2}"
+
+# Default subcommand with no args is `help`; allow.
+if [[ -z "$sub1" ]]; then exec "$bin" "$@"; fi
+
+# Refuse list (exact two-word matches first, then single-word).
+case "$joined" in
+  "providers mirror"|"state push"|"state rm"|"state replace-provider"|"workspace new"|"workspace delete")
+    die "subcommand '$joined' is not allowed by policy" ;;
+esac
+case "$sub1" in
+  init|plan|apply|destroy|import|console|login|logout|refresh|taint|untaint|force-unlock|test)
+    die "subcommand '$sub1' is not allowed by policy" ;;
+esac
+
+# Allow list (exact two-word matches first, then single-word).
+allowed=0
+case "$joined" in
+  "providers schema"|"providers lock"|"state list"|"state show")
+    allowed=1 ;;
+esac
+case "$sub1" in
+  fmt|validate|version|output|show|graph|providers|state|help|--help|-h|--version|-v|hclfmt|hclvalidate)
+    allowed=1 ;;
+esac
+
+if (( ! allowed )); then
+  die "subcommand '$sub1' is not on the policy allowlist"
+fi
+
+TF_PLUGIN_CACHE_DIR="$(pwd)/.terraform-plugin-cache"
+export TF_PLUGIN_CACHE_DIR
+export TF_INPUT=0
+export TF_IN_AUTOMATION=1
+export TF_CLI_CONFIG_FILE=/dev/null
+
+exec "$bin" "$@"

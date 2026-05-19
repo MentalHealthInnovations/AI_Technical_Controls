@@ -212,21 +212,15 @@ allowed_patterns=(
   # Docker - safe operations
   "^docker\s+(build|ps|logs|pull|images|inspect)"
 
-  # pre-commit and the binaries its hooks invoke. Anchored at ^ because they
-  # modify the filesystem (write per-language envs under ~/.cache/pre-commit,
-  # provider plugins under ~/.terraform.d, .terraform/ inside the repo, etc.).
-  # Paired sandbox allowances live in managed-settings.json under
-  # sandbox.filesystem.{allowRead,allowWrite}.
-  #
-  # pre-commit: only subcommands that do not fetch or execute network-supplied
-  # hook repos. try-repo/autoupdate/install-hooks are pre-blocked above.
-  "^pre-commit\s+(run|gc|sample-config|validate-config|validate-manifest|help|--version|hook-impl)\b"
-  "^terraform\b"
-  "^terragrunt\b"
-  "^tflint\b"
-  "^tfsec\b"
-  "^terraform-docs\b"
-  "^gitleaks\b"
+  # pre-commit, terraform, and gitleaks are not allowed directly because each
+  # spawns subprocesses (hook binaries, provider plugins) via execve that
+  # bypass this policy hook. Invoke them via the org-managed wrappers in
+  # /opt/claude/bin/, which validate subcommands, pin cache locations into the
+  # repo, refuse module/plugin fetches, and force --redact for gitleaks.
+  "^/opt/claude/bin/pre-commit-safe\b"
+  "^/opt/claude/bin/terraform-safe\b"
+  "^/opt/claude/bin/terragrunt-safe\b"
+  "^/opt/claude/bin/gitleaks-safe\b"
 )
 
 # Split command on chain operators (&&, ||, ;, |) and check each segment individually.
