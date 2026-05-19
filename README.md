@@ -24,6 +24,19 @@ A layered configuration system that makes Claude Code safer to use at scale. The
 
 ## Installation
 
+### Prerequisites
+
+The install script installs both dependencies on demand via Jamf custom triggers. Both are required; the script refuses to proceed if either is missing and the corresponding trigger isn't supplied.
+
+| Parameter | Resource | Used when |
+|---|---|---|
+| `$4` | `jq` | `command -v jq` fails. The script runs `jamf policy -event "$4"`. |
+| `$5` | Xcode Command Line Tools | `xcode-select -p` fails. The script runs `jamf policy -event "$5"`. |
+
+Configure the script in Jamf with the custom triggers of your existing jq and CLT install policies as parameters 4 and 5. Both dependencies are runtime-critical — `jq` parses every hook payload and reads the WebFetch allowlist; CLT provides `git` and a C compiler that this script needs to install other governance components. If jq is later removed from a machine, the hooks fail closed (preserving security) and block every Bash, WebFetch, and Read call until it's reinstalled.
+
+### Run
+
 Run `InstallClaudeGovernance.sh` once as root on each managed machine. It:
 
 1. Installs `/usr/local/bin/pull_claude_governance.sh` and runs it immediately.

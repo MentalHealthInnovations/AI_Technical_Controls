@@ -9,27 +9,73 @@
 #   3. Install /usr/local/bin/update_ai_governance, a setuid binary that allows any local
 #      user to trigger a policy update without root access by running: update_ai_governance
 #   4. Schedule a daily cron job (root crontab, 12:00) to keep policies up to date.
+#
+# Jamf parameters:
+#   $1, $2, $3 — supplied by Jamf (mount point, computer name, console user); unused.
+#   $4         — Jamf custom trigger for a policy that installs jq. Required if jq
+#                is not already on the machine; this script invokes
+#                `jamf policy -event "$4"` to install it from an IT-controlled
+#                package. Hooks fail closed without jq, so we refuse to proceed.
+#   $5         — Jamf custom trigger for a policy that installs Xcode Command Line
+#                Tools. Required if CLT is not already installed; this script
+#                invokes `jamf policy -event "$5"` to install it.
+#
+# Dependencies (both are required at runtime; both are installed via Jamf
+# policy triggers passed as $4 and $5 if missing — no Homebrew or softwareupdate
+# fallback, so IT keeps full control over what lands on managed machines):
+#   - Xcode Command Line Tools (provides git, cc/gcc).
+#   - jq (used at runtime by the governance hooks to parse hook payloads and the
+#     domain allowlist; missing jq fails closed and blocks every Bash, Read, and
+#     WebFetch call).
 
 set -e
 
-if ! xcode-select -p &> /dev/null ; then
-  echo "Command Line Tools for Xcode not found. Installing from softwareupdate…"
-  # This temporary file prompts the 'softwareupdate' utility to list the Command Line Tools
-  SENTINEL=/tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
-  touch "$SENTINEL"
-  trap 'rm -f "$SENTINEL"' EXIT
-  PROD=$(softwareupdate -l 2>/dev/null \
-    | awk -F'*' '/^ *\*.*Command Line/ {print $2}' \
-    | sed -E 's/^ *(Label: )?//' \
-    | sort -V \
-    | tail -n 1)
-  if [[ -z "$PROD" ]]; then
-    echo "Could not determine CLT package name" >&2
-    exit 1
+JAMF_JQ_TRIGGER="${4:-}"
+JAMF_XCODE_CLT_TRIGGER="${5:-}"
+
+# trigger_jamf_install RESOURCE TRIGGER VERIFY_CMD
+# Fires a Jamf policy by its custom trigger and verifies that the resource is
+# present afterwards. Aborts with a clear error if the trigger is empty, the
+# jamf binary is unavailable, or the post-install verify fails. Centralises the
+# pattern shared between the jq and CLT install paths.
+trigger_jamf_install() {
+  local resource="$1" trigger="$2" verify_cmd="$3"
+  if [[ -z "$trigger" ]]; then
+    echo "$resource not found and no Jamf trigger supplied." >&2
+    echo "Pass the Jamf custom trigger for the $resource install policy as the script parameter described in the header." >&2
+    return 1
   fi
-  sudo softwareupdate -i "$PROD" --verbose
+  if ! command -v jamf &>/dev/null; then
+    echo "$resource not found and the 'jamf' binary is unavailable on this machine." >&2
+    echo "Either install $resource manually before running this script, or run this on a Jamf-managed machine." >&2
+    return 1
+  fi
+  echo "Installing $resource via Jamf policy trigger '$trigger'…"
+  jamf policy -event "$trigger"
+  if ! eval "$verify_cmd" &>/dev/null; then
+    echo "Jamf trigger '$trigger' ran but $resource is still missing." >&2
+    echo "Check the policy is scoped to this machine and that it actually installs $resource." >&2
+    return 1
+  fi
+  echo "$resource installed."
+}
+
+if ! xcode-select -p &>/dev/null; then
+  trigger_jamf_install "Xcode Command Line Tools" "$JAMF_XCODE_CLT_TRIGGER" "xcode-select -p"
 else
-  echo "Command Line Tools for Xcode are already installed."
+  echo "Xcode Command Line Tools are already installed."
+fi
+
+# Jamf-pushed jq typically lands in /usr/local/bin (Intel) or /opt/homebrew/bin
+# (Apple Silicon). Neither is on root's default PATH, so we extend PATH for the
+# rest of this script's lifetime to find jq after a fresh install. The hooks
+# themselves run under Claude Code's PATH, not this one.
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+if ! command -v jq &>/dev/null; then
+  trigger_jamf_install "jq" "$JAMF_JQ_TRIGGER" "command -v jq"
+else
+  echo "jq is already installed."
 fi
 
 script_dest="/usr/local/bin/pull_claude_governance.sh"
