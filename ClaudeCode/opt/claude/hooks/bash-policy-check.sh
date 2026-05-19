@@ -111,6 +111,17 @@ if printf '%s' "$cmd" | grep -Eqi '^find\b.*[[:space:]]-delete\b'; then
   exit 0
 fi
 
+# pre-commit subcommands that fetch or execute arbitrary code from network or
+# .pre-commit-config.yaml escape the bash-policy boundary: pre-commit spawns
+# hook binaries via execve, so the shell-invocation check on line ~71 is not
+# consulted. Block the dangerous subcommands ahead of the allowlist so a
+# future broadening of "^pre-commit\b" can't launder them.
+if printf '%s' "$cmd" | grep -Eqi '^pre-commit\s+(try-repo|autoupdate|install-hooks|install|migrate-config|init-templatedir)\b'; then
+  logtofile "DENY pre-commit subcommand: $cmd"
+  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"pre-commit try-repo/autoupdate/install-hooks blocked by policy"}}'
+  exit 0
+fi
+
 # Array of allowed command patterns (regex format)
 # Safe git commands: read-only, safe modifications, but blocks dangerous operations
 allowed_patterns=(
@@ -206,7 +217,10 @@ allowed_patterns=(
   # provider plugins under ~/.terraform.d, .terraform/ inside the repo, etc.).
   # Paired sandbox allowances live in managed-settings.json under
   # sandbox.filesystem.{allowRead,allowWrite}.
-  "^pre-commit\b"
+  #
+  # pre-commit: only subcommands that do not fetch or execute network-supplied
+  # hook repos. try-repo/autoupdate/install-hooks are pre-blocked above.
+  "^pre-commit\s+(run|gc|sample-config|validate-config|validate-manifest|help|--version|hook-impl)\b"
   "^terraform\b"
   "^terragrunt\b"
   "^tflint\b"
