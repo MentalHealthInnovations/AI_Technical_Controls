@@ -114,7 +114,6 @@
     "filesystem": {
       "allowRead": [
         ".",
-        "~/.cache/pre-commit/**",
         "~/.terraform.d/**"
       ],
       "allowWrite": [
@@ -137,7 +136,6 @@
         "./.git/FETCH_HEAD",
         "./.git/packed-refs",
         "./.git/packed-refs.lock",
-        "~/.cache/pre-commit/**",
         "~/.terraform.d/**"
       ],
       "denyRead": [
