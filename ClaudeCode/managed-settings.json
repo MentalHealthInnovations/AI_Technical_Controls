@@ -92,6 +92,10 @@
       "Edit(./.git/ORIG_HEAD)",
       "Edit(./.git/packed-refs)",
       "Edit(./.husky/**)",
+      "Edit(./.pre-commit-config.yaml)",
+      "Edit(./**/.pre-commit-config.yaml)",
+      "Write(./.pre-commit-config.yaml)",
+      "Write(./**/.pre-commit-config.yaml)",
       "Edit(/Library/Application Support/ClaudeCode)",
 
       "WebSearch(*)"
