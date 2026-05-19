@@ -200,6 +200,19 @@ allowed_patterns=(
   
   # Docker - safe operations
   "^docker\s+(build|ps|logs|pull|images|inspect)"
+
+  # pre-commit and the binaries its hooks invoke. Anchored at ^ because they
+  # modify the filesystem (write per-language envs under ~/.cache/pre-commit,
+  # provider plugins under ~/.terraform.d, .terraform/ inside the repo, etc.).
+  # Paired sandbox allowances live in managed-settings.json under
+  # sandbox.filesystem.{allowRead,allowWrite}.
+  "^pre-commit\b"
+  "^terraform\b"
+  "^terragrunt\b"
+  "^tflint\b"
+  "^tfsec\b"
+  "^terraform-docs\b"
+  "^gitleaks\b"
 )
 
 # Split command on chain operators (&&, ||, ;, |) and check each segment individually.
