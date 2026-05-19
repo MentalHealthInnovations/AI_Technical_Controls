@@ -41,7 +41,17 @@ echo "Copying CLAUDE.md..."
 cp "$ai_governance_repo_dir/ClaudeCode/CLAUDE.md" "$claude_config_dir"
 
 echo "Copying hooks..."
-cp "$ai_governance_repo_dir"/ClaudeCode/opt/claude/hooks/* "$claude_hooks_dir"
+# Recursive (-R) because hooks now ship with a lib/ subdirectory containing
+# shared sourced libraries (audit-log.sh, redact.sh). Hook scripts resolve
+# lib/ relative to their own location, so the directory layout under
+# /opt/claude/hooks/ must mirror the repo layout.
+#
+# Stale-file cleanup: rm any non-hidden file/dir under the hooks directory
+# before copying. Prevents an orphaned hook script from a previous version
+# remaining executable on disk and continuing to fire after we've removed it
+# from the repo. Hidden files (e.g. .DS_Store) are left alone.
+find "$claude_hooks_dir" -mindepth 1 -not -path '*/.*' -delete 2>/dev/null || true
+cp -R "$ai_governance_repo_dir"/ClaudeCode/opt/claude/hooks/. "$claude_hooks_dir"
 
 echo "Writing version stamp..."
 # Record the deployed SHA so fleet operators can verify which policy version is

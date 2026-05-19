@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # PreToolUse hook for WebFetch. Enforces a domain allowlist: blocks all fetches
 # except those to explicitly permitted domains. Outputs Claude Code hookSpecificOutput JSON.
+#
+# Audit: every invocation (allow or deny) is appended as a single JSON Lines
+# record to ~/.claude/debug/webfetch-policy.jsonl via the shared audit-log helper.
 set -u
 
-logtofile() {
-  echo "[$(date)] [webfetch-policy] [$(pwd)] $1" >> "$HOME/.claude/debug/webfetch-policy.log"
-}
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/audit-log.sh
+source "$HOOK_DIR/lib/audit-log.sh"
+audit_init "webfetch-policy"
 
 payload="$(cat)"
 url="$(printf '%s' "$payload" | jq -r '.tool_input.url // empty')"
@@ -23,8 +27,6 @@ fi
 # "attacker.com" the real host. The old two-expression sed ran the @-strip on the
 # already-shortened string (which had no @ left), so the strip was a no-op.
 hostname="$(printf '%s' "$url" | sed -E 's|^[^:]+://([^/:?#@]*@)?([^/:?#]*).*|\2|')"
-
-logtofile "hostname extracted: $hostname"
 
 # Unified allowlist. Each entry is either:
 #   "example.com"        — allows requests to exactly example.com, any path
@@ -82,15 +84,28 @@ for entry in "${allowed_entries[@]}"; do
 
   if [[ "$hostname" == "$entry_host" ]]; then
     if [[ -z "$entry_path" || "$path" == "$entry_path" || "$path" == "$entry_path/"* ]]; then
+      audit_emit "$payload" allow \
+        url      "$url" \
+        hostname "$hostname" \
+        matched  "$entry"
       echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}'
       exit 0
     fi
-    logtofile "DENY host '$entry_host' matched but path '$path' not under '$entry_path': $url"
+    audit_emit "$payload" deny \
+      url      "$url" \
+      hostname "$hostname" \
+      reason   "path_not_allowed" \
+      matched  "$entry_host" \
+      attempted_path "$path" \
+      allowed_path   "$entry_path"
     echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Domain not in WebFetch allowlist"}}'
     exit 0
   fi
 done
 
-logtofile "DENY domain not in allowlist: $hostname"
+audit_emit "$payload" deny \
+  url      "$url" \
+  hostname "$hostname" \
+  reason   "domain_not_allowed"
 echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Domain not in WebFetch allowlist"}}'
 exit 0

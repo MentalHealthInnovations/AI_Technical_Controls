@@ -2,11 +2,17 @@
 # PreToolUse hook for Bash commands. Enforces an allowlist policy: blocks network tools,
 # pipe-to-shell patterns, base64 decode-and-execute, excessive command chaining, and
 # any command not explicitly permitted. Outputs Claude Code hookSpecificOutput JSON.
+#
+# Audit: every invocation (allow or deny) is appended as a single JSON Lines
+# record to ~/.claude/debug/bash-policy.jsonl via the shared audit-log helper.
 set -u
 
-logtofile() {
-  echo "[$(date)] [bash-policy] [$(pwd)] $1" >> "$HOME/.claude/debug/bash-policy.log"
-}
+# Load the shared JSONL audit helper. Resolve relative to this script so it
+# works whether the hook is run from /opt/claude/hooks/ or a test directory.
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/audit-log.sh
+source "$HOOK_DIR/lib/audit-log.sh"
+audit_init "bash-policy"
 
 payload="$(cat)"
 cmd="$(printf '%s' "$payload" | jq -r '.tool_input.command // empty')"
@@ -14,6 +20,17 @@ cmd="$(printf '%s' "$payload" | jq -r '.tool_input.command // empty')"
 if [[ -z "$cmd" ]]; then
   exit 0
 fi
+
+# Helper: emit a deny decision via JSON to stdout AND record the audit line.
+emit_deny() {
+  local reason_short="$1"   # short label for the audit log (e.g. "sudo_su")
+  local reason_user="$2"    # user-facing reason returned to Claude
+  audit_emit "$payload" deny \
+    cmd    "$cmd" \
+    reason "$reason_short"
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$reason_user"
+  exit 0
+}
 
 # strip_quoted_strings removes everything inside "..." or '...' (including multi-line values)
 # so that words like "exec" in a commit message body — or regex alternation operators like
@@ -45,21 +62,15 @@ stripped_cmd="$(strip_quoted_strings "$cmd")"
 # argument text (e.g. a grep regex), not shell-level chaining, so they must not count.
 separators=$(printf '%s' "$stripped_cmd" | grep -oE '(\&\&|;|\|\||\|)' | wc -l | tr -d ' ')
 if [[ "${separators:-0}" -gt 2 ]]; then
-  logtofile "DENY excessive chaining ($separators separators): $cmd"
-  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Command chaining exceeds policy threshold"}}'
-  exit 0
+  emit_deny "chaining" "Command chaining exceeds policy threshold"
 fi
 
 if printf '%s' "$stripped_cmd" | grep -Eqi '(^|\s)(sudo|su)(\s|$)'; then
-  logtofile "DENY sudo/su: $cmd"
-  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Privilege escalation (sudo/su) blocked by policy"}}'
-  exit 0
+  emit_deny "sudo_su" "Privilege escalation (sudo/su) blocked by policy"
 fi
 
 if printf '%s' "$cmd" | grep -Eqi '\b(curl|wget|nc|netcat|ncat|socat)\b'; then
-  logtofile "DENY network tool: $cmd"
-  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Network tool usage blocked by policy"}}'
-  exit 0
+  emit_deny "network_tool" "Network tool usage blocked by policy"
 fi
 
 # Match shell/interpreter invocation as a command token, not as a substring.
@@ -69,27 +80,19 @@ fi
 #          like "fish-fix" or arguments that contain these strings.
 # shellcheck disable=SC2016  # single-quoted regex: $ is a literal char, not a variable
 if printf '%s' "$stripped_cmd" | grep -Eqi '(^|[|;&`$( ])(sh|bash|zsh|fish|dash|ksh|csh|tcsh|python3?|perl|ruby|node(js)?|php|lua|exec|eval)\b'; then
-  logtofile "DENY shell invocation: $cmd"
-  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Shell or interpreter invocation blocked by policy"}}'
-  exit 0
+  emit_deny "shell_invocation" "Shell or interpreter invocation blocked by policy"
 fi
 
 if printf '%s' "$cmd" | grep -Eqi 'base64\s+(-d|--decode)'; then
-  logtofile "DENY base64 decode: $cmd"
-  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Decode-and-execute pattern blocked"}}'
-  exit 0
+  emit_deny "base64_decode" "Decode-and-execute pattern blocked"
 fi
 
 if printf '%s' "$cmd" | grep -Eqi '(^|\s)(--force|-D|--force-delete|--no-verify)\b'; then
-  logtofile "DENY dangerous flag: $cmd"
-  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Dangerous flag blocked by policy"}}'
-  exit 0
+  emit_deny "dangerous_flag" "Dangerous flag blocked by policy"
 fi
 
 if printf '%s' "$cmd" | grep -Eq '^git\s+.*\s(-f|--hard)\b'; then
-  logtofile "DENY git -f flag: $cmd"
-  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Dangerous flag blocked by policy"}}'
-  exit 0
+  emit_deny "git_force_flag" "Dangerous flag blocked by policy"
 fi
 
 # find -exec/-execdir bypasses the shell-invocation check because "-exec" is
@@ -97,18 +100,14 @@ fi
 # Block it explicitly before reaching the allowlist so that "^find\b" cannot
 # be used to launder arbitrary subprocess execution.
 if printf '%s' "$cmd" | grep -Eqi '^find\b.*[[:space:]]-exec(dir)?\b'; then
-  logtofile "DENY find -exec: $cmd"
-  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"find -exec/-execdir blocked by policy"}}'
-  exit 0
+  emit_deny "find_exec" "find -exec/-execdir blocked by policy"
 fi
 
 # find -delete is a built-in mass-deletion action that bypasses the shell-invocation
 # check for the same reason as -exec. Block it here for defense-in-depth even though
 # the FS sandbox limits write scope.
 if printf '%s' "$cmd" | grep -Eqi '^find\b.*[[:space:]]-delete\b'; then
-  logtofile "DENY find -delete: $cmd"
-  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"find -delete blocked by policy"}}'
-  exit 0
+  emit_deny "find_delete" "find -delete blocked by policy"
 fi
 
 # pre-commit subcommands that fetch or execute arbitrary code from network or
@@ -215,7 +214,7 @@ allowed_patterns=(
   "^git blame"
   "^git grep"
   "^git remote"
-  
+
   # Git safe modifications
   "^git add"
   "^git commit"
@@ -233,25 +232,25 @@ allowed_patterns=(
   "^git reset"    # non-destructive modes (--soft, HEAD~N) allowed; --hard caught above
   "^git clone"
   "^git help"
-  
+
   # GitHub CLI
   "^gh\s+(issue|pr|repo|gist|label|release)"
-  
+
   # npm/pnpm/yarn - safe operations
   "^npm\s+(ci|test|lint|list|search|view|info|outdated)"
   "^pnpm\s+(test|lint|list|search|view|outdated)"
   "^yarn\s+(test|lint|audit|list|info)"
-  
+
   # Python package managers
   "^pip\s+(list|show|search|check)"
   "^pip3\s+(list|show|search|check)"
   "^poetry\s+(show|search|lock|lock.*--no-update|update)"
-  
+
   # Python testing and linting
   "^pytest"
   "^ruff\s+(check|format|format.*--check|lint)"
   "^mypy"
-  
+
   # Docker - safe operations
   "^docker\s+(build|ps|logs|pull|images|inspect)"
 
@@ -305,10 +304,16 @@ segment_allowed() {
 # each segment's leading verb, which lives outside any quoted argument.
 while IFS= read -r segment; do
   if ! segment_allowed "$segment"; then
-    logtofile "DENY segment not in allowlist: '$segment' (full cmd: $cmd)"
+    audit_emit "$payload" deny \
+      cmd          "$cmd" \
+      reason       "not_in_allowlist" \
+      bad_segment  "$segment"
     echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Command not in policy allowlist"}}'
     exit 0
   fi
 done < <(printf '%s' "$stripped_cmd" | sed 's/&&/\n/g; s/||/\n/g; s/;/\n/g; s/|/\n/g')
 
+audit_emit "$payload" allow \
+  cmd        "$cmd" \
+  segs:json  "${separators:-0}"
 echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}'
