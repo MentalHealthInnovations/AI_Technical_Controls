@@ -222,7 +222,7 @@
     },
 
     "network": {
-      "_comment_allowedDomains": "SYNC REQUIRED — this list and ALLOWED_DOMAINS in webfetch-policy-check.sh enforce the same boundary at different layers (OS sandbox vs hook) and must be kept identical. When adding or removing a domain here, make the same change in that file. Path-scoped entries (e.g. code.claude.com/docs) are only supported in the hook — list only the bare hostname here.",
+      "_comment_allowedDomains": "Source of truth for the WebFetch domain allowlist. webfetch-policy-check.sh reads this list at runtime, so adding or removing a hostname here updates both the OS sandbox and the hook in lockstep. Bare hostnames only — no subdomain wildcards (list each subdomain explicitly) and no path scoping (if a host is listed, every path on that host is reachable).",
       "allowUnixSockets": [],
       "allowAllUnixSockets": false,
       "allowLocalBinding": false,

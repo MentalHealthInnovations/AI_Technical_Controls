@@ -194,7 +194,7 @@ Engineers may improve convenience inside the rails; they do not control the rail
 
 | Request | Target file |
 |---|---|
-| New WebFetch domain | `managed-settings.json` + `webfetch-policy-check.sh` |
+| New WebFetch domain | `managed-settings.json` (`network.allowedDomains` — `webfetch-policy-check.sh` reads this list at runtime, no separate hook edit needed) |
 | Allow a currently-blocked Bash command | `bash-policy-check.sh` |
 | New/updated secret-detection pattern | `opt/claude/hooks/lib/redact.sh` |
 | New MCP server | `managed-settings.json` |

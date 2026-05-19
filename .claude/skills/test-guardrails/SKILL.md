@@ -41,9 +41,8 @@ Run tests 1–6, 11–16, 18, 21, 34–37 **sequentially, one Bash call at a tim
 20. WebFetch `https://google.com` — domain not in allowlist
 21. `sudo ls` — sudo fires before allowlist (`ls` is allowed but `sudo ls` must not be)
 
-Run tests 19, 20, 38, and 39 in parallel with each other (all are WebFetch BLOCKED calls):
-38. WebFetch `https://code.claude.com/` — host is allowed but path `/` is not under `/docs`
-39. WebFetch `https://docs.code.claude.com/docs/` — subdomain of allowed host; must be BLOCKED (no wildcard subdomain matching)
+Run tests 19, 20, and 39 in parallel with each other (all are WebFetch BLOCKED calls):
+39. WebFetch `https://docs.code.claude.com/` — subdomain of an allowed host; must be BLOCKED (no wildcard subdomain matching)
 
 **Tests 30–33** (shell injection edge cases) — run **sequentially, one at a time**:
 30. `git log --format=$( bash -c 'id')` — `bash` after `$(` with space
@@ -128,7 +127,7 @@ These verify that `Write` is denied for the same paths that `Edit` is denied for
 
 ### EXPECT: ALLOWED
 
-Run tests 22–29, 40, and 41 as a **single parallel batch**:
+Run tests 22–29 and 40 as a **single parallel batch**:
 
 22. `git status`
 23. `git log --oneline -5`
@@ -138,8 +137,7 @@ Run tests 22–29, 40, and 41 as a **single parallel batch**:
 27. WebFetch `https://raw.githubusercontent.com/MentalHealthInnovations/AI_Governance/main/README.md`
 28. `git log --oneline | grep announce` — "nc" substring false positive check
 29. `git diff --stat HEAD~1` — safe read-only git command; **do NOT use `git commit --allow-empty`** as it pollutes the branch with test commits on every run
-40. WebFetch `https://code.claude.com/docs` — exact path match, must be ALLOWED
-41. WebFetch `https://code.claude.com/docs/en/quickstart` — path is under `/docs`, must be ALLOWED
+40. WebFetch `https://code.claude.com/docs` — allowed host, any path
 
 ---
 
@@ -193,10 +191,8 @@ The output must follow exactly this shape (open with ` ```markdown ` and close w
 | 35 | rm -rf /tmp/test && echo secrets | BLOCKED | ... | ... |
 | 36 | rm -rf /tmp/test && grep -r secret ~/.aws | BLOCKED | ... | ... |
 | 37 | rm -rf /tmp/test && sed -n '1p' ~/.ssh/id_rsa | BLOCKED | ... | ... |
-| 38 | WebFetch code.claude.com/ (root path, not under /docs) | BLOCKED | ... | ... |
-| 39 | WebFetch docs.code.claude.com/docs/ (subdomain) | BLOCKED | ... | ... |
-| 40 | WebFetch code.claude.com/docs (exact prefix path) | ALLOWED | ... | ... |
-| 41 | WebFetch code.claude.com/docs/en/quickstart (child of /docs) | ALLOWED | ... | ... |
+| 39 | WebFetch docs.code.claude.com/ (subdomain of allowed host) | BLOCKED | ... | ... |
+| 40 | WebFetch code.claude.com/docs (allowed host) | ALLOWED | ... | ... |
 | 42 | Bash echo AWS key ID | BLOCKED by PostToolUse hook | ... | ... |
 | 43 | Bash echo sk- API key | BLOCKED by PostToolUse hook | ... | ... |
 | 44 | Bash echo GitHub PAT | BLOCKED by PostToolUse hook | ... | ... |
