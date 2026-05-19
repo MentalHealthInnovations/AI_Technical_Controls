@@ -89,9 +89,11 @@ Every record carries a common envelope:
 
 | Field | Description |
 |---|---|
+| `schema_version` | Integer. Bumped on backwards-incompatible envelope changes (rename, semantic shift). Adding optional fields does not bump it. |
 | `ts` | UTC timestamp, ISO-8601 |
 | `hook` | Hook name (e.g. `bash-policy`) |
 | `user` | Local OS user |
+| `host` | Short hostname (`hostname -s`) — identifies which machine emitted the record |
 | `proc_cwd` | Hook process working directory |
 | `payload_cwd` | `cwd` reported by Claude Code in the hook payload |
 | `session_id` | Claude Code session UUID |
@@ -102,10 +104,10 @@ Every record carries a common envelope:
 Plus hook-specific fields. Examples:
 
 ```json
-{"ts":"2026-05-19T14:22:01Z","hook":"bash-policy","user":"alice","session_id":"…","decision":"allow","cmd":"git status","segs":0}
-{"ts":"2026-05-19T14:22:03Z","hook":"bash-policy","user":"alice","session_id":"…","decision":"deny","cmd":"sudo ls","reason":"sudo_su"}
-{"ts":"2026-05-19T14:22:10Z","hook":"output-redact","user":"alice","session_id":"…","decision":"redact","matched":["AWS_KEY_ID"],"output_len":4096}
-{"ts":"2026-05-19T14:22:30Z","hook":"prompt-submit","user":"alice","session_id":"…","decision":"submit","prompt":"deploy to staging using [REDACTED]","prompt_len":142,"redactions":["AWS_KEY_ID"]}
+{"schema_version":1,"ts":"2026-05-19T14:22:01Z","hook":"bash-policy","user":"alice","host":"alice-mbp","session_id":"…","decision":"allow","cmd":"git status","segs":0}
+{"schema_version":1,"ts":"2026-05-19T14:22:03Z","hook":"bash-policy","user":"alice","host":"alice-mbp","session_id":"…","decision":"deny","cmd":"sudo ls","reason":"sudo_su"}
+{"schema_version":1,"ts":"2026-05-19T14:22:10Z","hook":"output-redact","user":"alice","host":"alice-mbp","session_id":"…","decision":"redact","matched":["AWS_KEY_ID"],"output_len":4096}
+{"schema_version":1,"ts":"2026-05-19T14:22:30Z","hook":"prompt-submit","user":"alice","host":"alice-mbp","session_id":"…","decision":"submit","prompt":"deploy to staging using [REDACTED]","prompt_len":142,"redactions":["AWS_KEY_ID"]}
 ```
 
 Review logs for repeated denies on the same command (legitimate use case to allow, or a workaround attempt), unexpected redact hits (project storing secrets badly), or repeated WebFetch denies on the same domain (dependency on an unapproved service).

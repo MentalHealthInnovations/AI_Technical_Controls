@@ -43,10 +43,14 @@ audit_emit() {
   payload_cwd="$(printf '%s' "$payload" | jq -r '.cwd // ""' 2>/dev/null || true)"
   tool_name="$(printf '%s' "$payload" | jq -r '.tool_name // ""' 2>/dev/null || true)"
 
-  local ts user proc_cwd
+  local ts user proc_cwd host
   ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
   user="${USER:-$(id -un 2>/dev/null || echo unknown)}"
   proc_cwd="$(pwd)"
+  # hostname -s strips the domain suffix. On macOS this is typically the
+  # machine name set in Settings → General → About. Captured once per
+  # invocation; cheap call.
+  host="$(hostname -s 2>/dev/null || echo unknown)"
 
   # Build the record. Common fields first, then merge the caller's extras.
   # Caller passes extras as jq variable bindings (--arg / --argjson) followed
@@ -54,10 +58,17 @@ audit_emit() {
   # callers pass `key value` pairs as additional positional args and we
   # convert them to --arg bindings here. Numeric/boolean extras can use the
   # `key:json` form (e.g. `len:42`) which we route to --argjson.
+  #
+  # schema_version: bumped when the envelope shape changes in a
+  # backwards-incompatible way (field renamed, semantic of a field altered).
+  # Adding a new optional field does NOT bump the version. Downstream
+  # ingestion can route records to different tables by this field.
   local jq_args=(
+    --argjson schema_version 1
     --arg ts          "$ts"
     --arg hook        "$AUDIT_HOOK"
     --arg user        "$user"
+    --arg host        "$host"
     --arg proc_cwd    "$proc_cwd"
     --arg payload_cwd "$payload_cwd"
     --arg session_id  "$session_id"
@@ -68,9 +79,11 @@ audit_emit() {
 
   # shellcheck disable=SC2016  # single-quoted jq filter — $-vars are jq bindings, not shell
   local jq_obj='{
+    schema_version: $schema_version,
     ts: $ts,
     hook: $hook,
     user: $user,
+    host: $host,
     proc_cwd: $proc_cwd,
     payload_cwd: $payload_cwd,
     session_id: $session_id,
