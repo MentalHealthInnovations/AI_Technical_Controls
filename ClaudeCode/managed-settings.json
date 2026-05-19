@@ -38,7 +38,8 @@
       "Read(~/.netrc)",
       "Read(~/.docker/config.json)",
       "Read(~/.kube/config)",
-      "Read(~/.terraform.d/**)",
+      "Read(~/.terraform.d/credentials.tfrc.json)",
+      "Read(~/.terraform.d/credentials/**)",
       "Read(~/.vault-token)",
       "Read(~/.config/gh/hosts.yml)",
       "Read(~/.pypirc)",
@@ -108,7 +109,9 @@
 
     "filesystem": {
       "allowRead": [
-        "."
+        ".",
+        "~/.cache/pre-commit/**",
+        "~/.terraform.d/**"
       ],
       "allowWrite": [
         ".",
@@ -129,7 +132,9 @@
         "./.git/ORIG_HEAD",
         "./.git/FETCH_HEAD",
         "./.git/packed-refs",
-        "./.git/packed-refs.lock"
+        "./.git/packed-refs.lock",
+        "~/.cache/pre-commit/**",
+        "~/.terraform.d/**"
       ],
       "denyRead": [
         "~/.ssh",
@@ -141,7 +146,8 @@
         "~/.netrc",
         "~/.docker",
         "~/.kube",
-        "~/.terraform.d",
+        "~/.terraform.d/credentials.tfrc.json",
+        "~/.terraform.d/credentials",
         "~/.vault-token",
         "~/Library/Keychains",
         "~/.config/gh",
@@ -162,7 +168,8 @@
         "~/.netrc",
         "~/.docker",
         "~/.kube",
-        "~/.terraform.d",
+        "~/.terraform.d/credentials.tfrc.json",
+        "~/.terraform.d/credentials",
         "~/.vault-token",
         "~/Library/Keychains"
       ],
