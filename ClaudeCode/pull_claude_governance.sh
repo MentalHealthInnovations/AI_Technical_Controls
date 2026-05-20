@@ -13,11 +13,12 @@ set -e
 
 claude_config_dir="/Library/Application Support/ClaudeCode/"
 claude_hooks_dir="/opt/claude/hooks/"
+claude_bin_dir="/opt/claude/bin/"
 ai_governance_repo_dir="/tmp/AI_Governance"
 script_dest="/usr/local/bin/pull_claude_governance.sh"
 
 echo "Creating directories..."
-mkdir -p "$claude_config_dir" "$claude_hooks_dir"
+mkdir -p "$claude_config_dir" "$claude_hooks_dir" "$claude_bin_dir"
 
 echo "Cloning AI_Governance repository..."
 rm -rf "$ai_governance_repo_dir"
@@ -42,6 +43,10 @@ cp "$ai_governance_repo_dir/ClaudeCode/CLAUDE.md" "$claude_config_dir"
 
 echo "Copying hooks..."
 cp "$ai_governance_repo_dir"/ClaudeCode/opt/claude/hooks/* "$claude_hooks_dir"
+
+echo "Copying bash-policy wrappers..."
+cp "$ai_governance_repo_dir"/ClaudeCode/opt/claude/bin/* "$claude_bin_dir"
+chmod +x "$claude_bin_dir"/*
 
 echo "Writing version stamp..."
 # Record the deployed SHA so fleet operators can verify which policy version is

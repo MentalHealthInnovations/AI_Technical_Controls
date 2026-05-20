@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# terragrunt-safe — thin alias around terraform-safe so the subcommand-allowlist
+# and env-var pinning logic only lives in one place. Re-exec'd with arg0 set to
+# `terragrunt-safe` so terraform-safe's `case "$(basename "$0")"` branch picks
+# the terragrunt binary.
+exec -a terragrunt-safe /opt/claude/bin/terraform-safe "$@"

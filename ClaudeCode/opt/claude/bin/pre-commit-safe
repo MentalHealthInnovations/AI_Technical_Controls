@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# pre-commit-safe — bash-policy-allowlisted wrapper around `pre-commit`.
+#
+# The bash-policy hook only inspects the top-level Bash command. When `pre-commit`
+# is allowed directly it spawns hook binaries via execve, bypassing the
+# interpreter-invocation block in bash-policy-check.sh. This wrapper closes that
+# gap by validating subcommand and config before exec'ing pre-commit, and by
+# redirecting the cache into the repo so it cannot be used as a persistence vector.
+#
+# Refuses:
+#   - subcommands that fetch or execute network-supplied hook code:
+#     try-repo, autoupdate, install-hooks, install, migrate-config, init-templatedir
+#   - .pre-commit-config.yaml whose `repo:` entries reference URLs not on the
+#     allowlist (defaults below; override via /opt/claude/etc/pre-commit-repo-allowlist,
+#     one prefix per line).
+#
+# Sets:
+#   - PRE_COMMIT_HOME=$(pwd)/.precommit-cache so caches live under the repo (writable,
+#     scoped per-checkout) instead of the user-global ~/.cache/pre-commit/, which would
+#     persist across sessions and execute on next git commit outside Claude.
+
+set -u
+
+ALLOWED_SUBCOMMANDS_RE='^(run|gc|sample-config|validate-config|validate-manifest|help|--version|hook-impl)$'
+
+DEFAULT_REPO_ALLOWLIST=(
+  "meta"
+  "local"
+  "https://github.com/pre-commit/"
+  "https://github.com/antonbabenko/pre-commit-terraform"
+  "https://github.com/gruntwork-io/pre-commit"
+  "https://github.com/gitleaks/gitleaks"
+)
+ALLOWLIST_FILE="/opt/claude/etc/pre-commit-repo-allowlist"
+
+die() { printf 'pre-commit-safe: %s\n' "$*" >&2; exit 2; }
+
+# Subcommand check. pre-commit's default subcommand (no args) is `run`.
+sub="${1-run}"
+case "$sub" in
+  -*) sub="run" ;;  # flags-only invocation defaults to run
+esac
+if ! [[ "$sub" =~ $ALLOWED_SUBCOMMANDS_RE ]]; then
+  die "subcommand '$sub' is not allowed by policy"
+fi
+
+# Load extra allowlist prefixes if the org has deployed one.
+allowlist=("${DEFAULT_REPO_ALLOWLIST[@]}")
+if [[ -r "$ALLOWLIST_FILE" ]]; then
+  while IFS= read -r line; do
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    allowlist+=("$line")
+  done < "$ALLOWLIST_FILE"
+fi
+
+prefix_allowed() {
+  local url="$1" prefix
+  for prefix in "${allowlist[@]}"; do
+    [[ "$url" == "$prefix"* ]] && return 0
+  done
+  return 1
+}
+
+# Validate any .pre-commit-config.yaml in the working directory: every `repo:` URL
+# must match an allowlist prefix. Done with a plain grep so we don't take a yaml
+# parser dependency; pre-commit itself validates structure on the real run.
+config="./.pre-commit-config.yaml"
+if [[ -f "$config" ]]; then
+  while IFS= read -r repo_url; do
+    [[ -z "$repo_url" ]] && continue
+    if ! prefix_allowed "$repo_url"; then
+      die "config references repo not on allowlist: $repo_url"
+    fi
+  done < <(awk '/^[[:space:]]*-?[[:space:]]*repo:[[:space:]]*/ {
+    sub(/^[[:space:]]*-?[[:space:]]*repo:[[:space:]]*/, "");
+    sub(/[[:space:]]*#.*$/, "");
+    gsub(/^["'\'']|["'\'']$/, "");
+    print
+  }' "$config")
+fi
+
+# Redirect the cache into the repo so it is sandbox-scoped and does not become a
+# persistence vector. .gitignore'd by convention in a separate concern.
+PRE_COMMIT_HOME="$(pwd)/.precommit-cache"
+export PRE_COMMIT_HOME
+
+exec pre-commit "$@"
