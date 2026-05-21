@@ -67,11 +67,6 @@ else
 fi
 
 if ! command -v jq &>/dev/null; then
-  # Jamf-pushed jq typically lands in /usr/local/bin (Intel) or /opt/homebrew/bin
-  # (Apple Silicon). Neither is on root's default PATH, so extend PATH before the
-  # post-install verify can find a freshly installed jq. The hooks themselves run
-  # under Claude Code's PATH, not this one, so no export is needed for them.
-  export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
   trigger_jamf_install "jq" "$JAMF_JQ_TRIGGER" "command -v jq"
 else
   echo "jq is already installed."
