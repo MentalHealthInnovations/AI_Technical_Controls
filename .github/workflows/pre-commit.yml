@@ -1,9 +1,13 @@
-name: pre-commit
+name: CI
 
-# Runs the same hooks contributors run locally via `pre-commit install`.
-# Primary purpose: enforce the PII staged-scan check (pii-staged-scan.sh)
-# on every push and PR, so contributors who skipped the local install
-# still cannot land PII to a protected branch.
+# Two-job workflow:
+#   - pre-commit: runs the pre-commit framework hooks (currently just the PII
+#     staged-scan) on every PR and push to main, so contributors who skipped
+#     `pre-commit install` locally still cannot land PII content.
+#   - hook-tests: runs ClaudeCode/tests/run_all.sh — the regression suite for
+#     all four hook layers (path-policy, content-sniff, staged-scan, wild
+#     corpus). Without this in CI, threshold changes and regex tightenings
+#     would pass CI silently until someone manually pulled the branch.
 
 on:
   pull_request:
@@ -46,3 +50,30 @@ jobs:
             exit 0
           fi
           pre-commit run --files "${files[@]}"
+
+  hook-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Ensure perl and jq are available
+        # Both are present on ubuntu-latest by default; this step is a guard
+        # in case of image drift. Fail loudly here rather than mid-test if
+        # either disappears upstream.
+        run: |
+          command -v perl >/dev/null || { echo "perl missing"; exit 1; }
+          command -v jq   >/dev/null || { echo "jq missing";   exit 1; }
+          perl --version | head -2
+          jq --version
+
+      - name: Run all hook regression suites
+        # ClaudeCode/tests/run_all.sh runs four suites:
+        #   1. pii-path-policy-check.sh   (JSONL cases, 35 tests)
+        #   2. pii-content-sniff.sh        (JSONL cases, 15 tests)
+        #   3. pii-staged-scan.sh          (synthetic-git-repo cases, 12 tests)
+        #   4. pii-content-sniff.sh wild   (false-positive corpus, 3 fixtures)
+        # The runner exits non-zero if any suite fails. Wild-corpus failure
+        # means a real-world-shaped fixture started tripping a detector,
+        # which the table output makes diagnosable.
+        run: ClaudeCode/tests/run_all.sh

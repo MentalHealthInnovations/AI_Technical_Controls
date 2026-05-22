@@ -4,7 +4,7 @@
 # The scanner reads its input from `git show :path`, so unit-testing it
 # requires actual staged files in a git index. This script:
 #
-#   1. Creates a throwaway git repo under $TMPDIR (or /tmp/claude as fallback),
+#   1. Creates a throwaway git repo under $TMPDIR (or /tmp if unset),
 #      independent of the host repo so the host index is never touched.
 #   2. Copies the scanner and its sourced patterns file into the temp repo.
 #   3. For each test case, writes fixture content, stages it, runs the scanner,
@@ -24,7 +24,7 @@ if [[ ! -x "$scanner_src" ]]; then
   exit 2
 fi
 
-tmp_root="${TMPDIR:-/tmp/claude}"
+tmp_root="${TMPDIR:-/tmp}"
 mkdir -p "$tmp_root"
 sandbox="$(mktemp -d "$tmp_root/pii-staged-scan-test.XXXXXX")"
 trap 'rm -rf "$sandbox"' EXIT
