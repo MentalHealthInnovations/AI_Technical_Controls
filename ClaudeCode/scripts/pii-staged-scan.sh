@@ -46,8 +46,8 @@ if ! command -v git >/dev/null 2>&1; then
   echo "pii-staged-scan: git not found" >&2
   exit 2
 fi
-if ! command -v perl >/dev/null 2>&1; then
-  echo "pii-staged-scan: perl not found" >&2
+if ! command -v awk >/dev/null 2>&1; then
+  echo "pii-staged-scan: awk not found" >&2
   exit 2
 fi
 
@@ -100,7 +100,7 @@ scan_file() {
     name="${pattern_names[$i]}"
     regex="${pattern_regexes[$i]}"
     conf="${pattern_confs[$i]}"
-    count="$(printf '%s' "$sample" | perl -ne 'BEGIN{$c=0} while(/'"$regex"'/g){$c++} END{print $c}' 2>/dev/null)"
+    count="$(printf '%s' "$sample" | awk -v r="$regex" 'BEGIN{c=0} {c+=gsub(r,"&")} END{print c+0}' 2>/dev/null)"
     [[ -z "$count" ]] && count=0
     if [[ "$count" -gt 0 ]]; then
       distinct=$((distinct + 1))

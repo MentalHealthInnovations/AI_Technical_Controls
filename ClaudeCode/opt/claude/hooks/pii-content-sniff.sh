@@ -82,10 +82,20 @@ script_dir="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=pii-patterns.sh
 . "$script_dir/pii-patterns.sh"
 
-# Match each pattern via Perl and aggregate hits.
+# Match each pattern via awk's gsub (POSIX ERE) and aggregate hits.
 #
-# Note: bash 3.2 (the macOS system bash) lacks associative arrays, so we
-# track results inline rather than building a name→count map.
+# Why awk, not perl: perl is not in the busybox/Alpine base, which means the
+# previous perl-based implementation forced a perl install in every minimal
+# environment. awk is POSIX-mandated and present in every base distribution
+# including Alpine (busybox awk). The regex set in pii-patterns.sh was
+# migrated to POSIX ERE at the same time — see that file for dialect notes.
+#
+# gsub(regex, replacement) returns the number of substitutions, which is what
+# we want as a count. Passing the regex via -v is safer than shell-substituting
+# into a quoted script body: no escape issues with $, ", or backslashes.
+#
+# bash 3.2 (the macOS system bash) lacks associative arrays, so we track
+# results inline rather than building a name→count map.
 distinct=0
 density_max=0
 density_name=""
@@ -95,7 +105,7 @@ for ((i=0; i<n; i++)); do
   name="${pattern_names[$i]}"
   regex="${pattern_regexes[$i]}"
   conf="${pattern_confs[$i]}"
-  count="$(printf '%s' "$sample" | perl -ne 'BEGIN{$c=0} while(/'"$regex"'/g){$c++} END{print $c}' 2>>"$HOOK_LOG")"
+  count="$(printf '%s' "$sample" | awk -v r="$regex" 'BEGIN{c=0} {c+=gsub(r,"&")} END{print c+0}' 2>>"$HOOK_LOG")"
   if [[ -z "$count" ]]; then
     count=0
   fi

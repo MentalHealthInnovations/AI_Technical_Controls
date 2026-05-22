@@ -93,21 +93,32 @@ for fixture in "${fixtures[@]}"; do
 
   # Independently count each pattern against the fixture so reviewers can see
   # how close to threshold each fixture sits. Uses the same sample size as
-  # the hook (first 64 KiB) and the same perl invocation shape.
+  # the hook (first 64 KiB) and the same awk-based counting shape.
   sample="$(head -c 65536 "$fixture")"
   printf '  %-40s' "$short_rel"
   n="${#pattern_names[@]}"
   for ((i=0; i<n; i++)); do
     name="${pattern_names[$i]}"
     regex="${pattern_regexes[$i]}"
-    count="$(printf '%s' "$sample" | perl -ne 'BEGIN{$c=0} while(/'"$regex"'/g){$c++} END{print $c}' 2>/dev/null)"
+    count="$(printf '%s' "$sample" | awk -v r="$regex" 'BEGIN{c=0} {c+=gsub(r,"&")} END{print c+0}' 2>/dev/null)"
     [[ -z "$count" ]] && count=0
     printf ' %-*s' "$pname_width" "$count"
     if [[ "$count" -gt 0 ]]; then
-      # Capture up to 3 sample matches so the report shows what's tripping
-      # the count, not just that something is. Single-quoted in the diagnostic
-      # to make whitespace visible.
-      matches="$(printf '%s' "$sample" | perl -ne 'while(/'"$regex"'/g){print "[$&]\n"; last if ++$n >= 3}' 2>/dev/null)"
+      # Capture up to 3 sample matches so the report shows what's tripping the
+      # count, not just that something is. awk's match() returns the offset of
+      # the next match (RSTART) and its length (RLENGTH); slicing with substr
+      # and advancing the cursor extracts each match in turn. Matches are
+      # wrapped in [] to make whitespace visible.
+      matches="$(printf '%s' "$sample" | awk -v r="$regex" '
+        {
+          line = $0
+          while (match(line, r) > 0 && shown < 3) {
+            print "[" substr(line, RSTART, RLENGTH) "]"
+            line = substr(line, RSTART + RLENGTH)
+            shown++
+          }
+        }
+      ' 2>/dev/null)"
       samples_out+="    $short_rel  $name:"$'\n'
       while IFS= read -r m; do
         [[ -n "$m" ]] && samples_out+="      $m"$'\n'

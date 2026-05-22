@@ -77,31 +77,24 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Install perl and jq if missing
-        # perl is required by pii-content-sniff.sh (regex scanning); jq is
-        # required by all hooks (JSON I/O). Both are pre-installed on real
-        # GitHub-hosted ubuntu-latest runners, so this step is a no-op there.
-        # When running under act or any minimal image (Debian slim, Alpine),
-        # install explicitly so the suite works without depending on image
-        # provenance. apt and apk are tried in that order.
+      - name: Install jq if missing
+        # awk and git are POSIX-mandated and present in every base image
+        # (busybox awk on Alpine, mawk on Ubuntu, BWK on macOS). jq is not —
+        # it's pre-installed on real GitHub ubuntu-latest, but not in minimal
+        # images like Alpine. Install only when missing.
         run: |
-          missing=()
-          command -v perl >/dev/null 2>&1 || missing+=(perl)
-          command -v jq   >/dev/null 2>&1 || missing+=(jq)
-          if [ "${#missing[@]}" -eq 0 ]; then
-            echo "perl and jq already installed; no action needed."
+          if command -v jq >/dev/null 2>&1; then
+            echo "jq already installed; no action needed."
           elif command -v apt-get >/dev/null 2>&1; then
-            echo "Installing via apt: ${missing[*]}"
             apt-get update -qq
-            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends jq
           elif command -v apk >/dev/null 2>&1; then
-            echo "Installing via apk: ${missing[*]}"
-            apk add --no-cache "${missing[@]}"
+            apk add --no-cache jq
           else
-            echo "Cannot install missing deps (${missing[*]}): neither apt-get nor apk found." >&2
+            echo "Cannot install jq: neither apt-get nor apk found." >&2
             exit 1
           fi
-          perl --version | head -2
+          awk --version 2>/dev/null | head -1 || echo "awk: $(command -v awk)"
           jq --version
 
       - name: Run all hook regression suites
