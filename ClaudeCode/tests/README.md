@@ -36,6 +36,12 @@ One JSON object per line (JSONL). Required fields:
 
 `run_all.sh` invokes this runner automatically after the JSONL hook suites.
 
+## Wild-corpus / false-positive guard
+
+`run_wild_corpus_cases.sh` runs every file under [cases/fixtures/pii-content-wild/](cases/fixtures/pii-content-wild/) through `pii-content-sniff.sh` and asserts that none of them trip a deny. Beyond pass/fail, it prints per-pattern hit counts so a future PR that lowers a threshold visibly shifts the counts.
+
+See the directory's [MANIFEST.md](cases/fixtures/pii-content-wild/MANIFEST.md) for provenance, known sub-threshold scores, and how to add a new fixture.
+
 ## Integration tests
 
 End-to-end tests against the live agent live in `.claude/skills/test-guardrails/SKILL.md`. The harness in this directory is for fast iteration on hook logic; the skill is the authoritative integration test.

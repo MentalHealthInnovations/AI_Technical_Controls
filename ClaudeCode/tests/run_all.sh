@@ -33,4 +33,12 @@ if ! "$here/run_staged_scan_cases.sh"; then
 fi
 echo
 
+# Wild-corpus: real-world-shaped files that must not trip any detector.
+# Catches threshold drift — see fixtures/pii-content-wild/MANIFEST.md.
+echo "=== pii-content-sniff.sh (wild corpus) ==="
+if ! "$here/run_wild_corpus_cases.sh"; then
+  overall_fail=1
+fi
+echo
+
 exit "$overall_fail"
