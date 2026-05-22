@@ -25,4 +25,12 @@ for suite in "${suites[@]}"; do
   echo
 done
 
+# Staged-scan tests use their own runner because the scanner needs a real
+# git index, not a JSONL payload feed.
+echo "=== pii-staged-scan.sh ==="
+if ! "$here/run_staged_scan_cases.sh"; then
+  overall_fail=1
+fi
+echo
+
 exit "$overall_fail"

@@ -13,12 +13,15 @@ A layered configuration system that makes Claude Code safer to use at scale. The
 | `ClaudeCode/opt/claude/hooks/webfetch-policy-check.sh` | Pre-execution policy hook for WebFetch |
 | `ClaudeCode/opt/claude/hooks/pii-path-policy-check.sh` | Pre-execution PII path/extension denylist for Read |
 | `ClaudeCode/opt/claude/hooks/pii-content-sniff.sh` | Pre-execution PII content scanner for Read (catches misnamed files) |
+| `ClaudeCode/opt/claude/hooks/pii-patterns.sh` | Shared PII pattern definitions, sourced by the content sniffer and the pre-commit scanner |
 | `ClaudeCode/opt/claude/hooks/output-redact.sh` | Post-execution secret redaction for Bash/Read/WebFetch |
 | `ClaudeCode/opt/claude/hooks/tool-audit.sh` | Audit-only hook for Edit, Write, Task, SlashCommand, Read |
 | `ClaudeCode/opt/claude/hooks/prompt-submit.sh` | Audit-only hook for `UserPromptSubmit` (logs redacted prompt text) |
 | `ClaudeCode/opt/claude/hooks/session-audit.sh` | Audit-only hook for `SessionStart`, `Stop`, `SessionEnd` |
 | `ClaudeCode/opt/claude/hooks/lib/audit-log.sh` | Shared helper: appends a JSONL record per invocation |
 | `ClaudeCode/opt/claude/hooks/lib/redact.sh` | Shared secret-redaction patterns (output + prompt) |
+| `ClaudeCode/scripts/pii-staged-scan.sh` | Pre-commit / CI scanner that blocks commits containing PII |
+| `.github/workflows/pre-commit.yml` | CI backstop: runs the PII staged-scan on every PR and push to main |
 | `ClaudeCode/pull_claude_governance.sh` | Pulls and deploys policy files; self-updates each run |
 | `ClaudeCode/InstallClaudeGovernance.sh` | One-time macOS bootstrap for `pull_claude_governance.sh` |
 | [Appendix: AWS audit-log setup](#appendix-aws-audit-log-setup) | Phase 0 manual AWS setup for the audit-log S3 bucket + IAM (IaC later) |
@@ -87,11 +90,26 @@ Two roles: **policy** hooks make allow/deny decisions; **audit** hooks observe a
 - **`bash-policy-check.sh`** — enforces policy beyond glob matching; catches obfuscation and compound expressions that would bypass simple deny patterns.
 - **`webfetch-policy-check.sh`** — enforces the domain allowlist.
 - **`pii-path-policy-check.sh`** — deterministic denylist for file paths that suggest PII content: data exports (`*-export.csv`, `members.xlsx`), record dumps (`users.sql`, `customers.json`), and files inside data folders (`referrals/`, `exports/`, `dumps/`, `pii/`, `dsar/`). Matched case-insensitively against the basename and any parent directory segment. This catches files by name only — see [CLAUDE.md](ClaudeCode/CLAUDE.md) for the agent-behaviour layer that handles content discovered after a read.
-- **`pii-content-sniff.sh`** — content-level fallback for misnamed files. Reads the first 64 KiB of the target file and scans for emails, UK postcodes, UK phone numbers, UK National Insurance numbers, IBANs, dates of birth, and grouped 16-digit card-shaped sequences. Denies the Read when at least 3 distinct categories appear or any single high-confidence pattern hits 10+ times. Binaries (NUL byte in the first KiB) are skipped — the path-policy hook owns those by name. Patterns and thresholds are tunable in-file.
+- **`pii-content-sniff.sh`** — content-level fallback for misnamed files. Reads the first 64 KiB of the target file and scans for emails, UK postcodes, UK phone numbers, UK National Insurance numbers, IBANs, dates of birth, and grouped 16-digit card-shaped sequences. Denies the Read when at least 3 distinct categories appear or any single high-confidence pattern hits 10+ times. Binaries (NUL byte in the first KiB) are skipped — the path-policy hook owns those by name. Patterns are sourced from `pii-patterns.sh` and thresholds are tunable in-file.
 - **`output-redact.sh`** — scans tool output for secrets. On match, the result is blocked before entering Claude's context. The UI transcript may still show the raw output, but Claude cannot read or act on it. Patterns (defined in `lib/redact.sh`): PEM blocks, AWS keys, GitHub PATs (classic and fine-grained), `sk-` keys, Slack tokens, JWTs, Bearer headers, generic `key=value` / `password=value` assignments, connection strings, and Stripe/Twilio/SendGrid keys.
 - **`tool-audit.sh`** — pure observer. Logs file paths and sizes for Edit/Write, subagent type and prompt length for Task, the command string for SlashCommand, and file path / offset / limit for Read. Never blocks.
 - **`prompt-submit.sh`** — captures every prompt the user submits. The prompt text is passed through the same redaction patterns as tool output, so credentials pasted into prompts are stripped before they reach the audit log. The list of patterns that fired is recorded so an analyst can see *that* a secret was present without storing it.
 - **`session-audit.sh`** — records session start (with source: `startup` / `resume` / `clear` / `compact`), `Stop` events, and `SessionEnd` reasons. Lets you reconstruct a per-session timeline by filtering the JSONL trail on `session_id`.
+
+### Commit-time PII scanning
+
+`ClaudeCode/scripts/pii-staged-scan.sh` runs at `git commit` time (via `.pre-commit-config.yaml`) and on every PR (via `.github/workflows/pre-commit.yml`). It scans the staged version of each changed file using the same pattern set as the runtime sniffer (sourced from [pii-patterns.sh](ClaudeCode/opt/claude/hooks/pii-patterns.sh)), and fails the commit/CI run if any file trips the 3-distinct-category or 10-density threshold.
+
+This layer protects against PII that the runtime hooks can't see — content pasted into a file by a human, generated by Claude from memory, or staged from an unrelated working directory. It is independent of the agent: the scanner will refuse the commit regardless of how the content got there.
+
+To enable locally:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+`pre-commit install` cannot be run by Claude — the bash-policy hook blocks it. Enabling pre-commit is an explicit human action.
 
 ### Audit logs
 
@@ -227,7 +245,8 @@ Engineers may improve convenience inside the rails; they do not control the rail
 | Allow a currently-blocked Bash command | `bash-policy-check.sh` |
 | New/updated secret-detection pattern | `opt/claude/hooks/lib/redact.sh` |
 | New/updated PII path or directory pattern | `pii-path-policy-check.sh` |
-| New/updated PII content detector or threshold tweak | `pii-content-sniff.sh` |
+| New/updated PII content detector or threshold tweak | `pii-patterns.sh` (shared by sniffer and pre-commit scanner) |
+| Pre-commit/CI scanner change (exclude prefixes, thresholds) | `pii-staged-scan.sh` |
 | New MCP server | `managed-settings.json` |
 | Behavioural guidance change | `CLAUDE.md` |
 | Team-wide repo allow rule | `.claude/settings.json` in that repo (not here) |

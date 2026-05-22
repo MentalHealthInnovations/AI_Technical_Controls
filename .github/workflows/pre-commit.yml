@@ -1,0 +1,48 @@
+name: pre-commit
+
+# Runs the same hooks contributors run locally via `pre-commit install`.
+# Primary purpose: enforce the PII staged-scan check (pii-staged-scan.sh)
+# on every push and PR, so contributors who skipped the local install
+# still cannot land PII to a protected branch.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          # Need full history so the PII scanner can resolve staged blobs
+          # against the merge base on PR runs.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install pre-commit
+        run: pip install pre-commit
+
+      - name: Run pre-commit on all changed files
+        # On a PR, diff against the merge base; on a push to main, diff against
+        # the previous commit. The scanner walks `git diff --cached` when given
+        # no filenames, so we stage the diff first via `pre-commit run --files`.
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+            mapfile -t files < <(git diff --name-only "$base" "$head")
+          else
+            mapfile -t files < <(git diff --name-only HEAD~1 HEAD)
+          fi
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No changed files; nothing to scan."
+            exit 0
+          fi
+          pre-commit run --files "${files[@]}"

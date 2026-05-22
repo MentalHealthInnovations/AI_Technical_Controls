@@ -74,51 +74,13 @@ if [[ -z "$sample" ]]; then
   exit 0
 fi
 
-# Pattern table — three parallel arrays so that pipe characters (|) inside
-# regexes don't collide with a field-separator. Each index across the three
-# arrays describes one detector. To add a new pattern, append one entry to
-# each array. CONFIDENCE: "high" patterns are robust enough to trip
-# DENSITY_TRIP on their own; "low" patterns only count toward DISTINCT_TRIP.
-pattern_names=(
-  "EMAIL"
-  "UK_POSTCODE"
-  "UK_NI"
-  "UK_PHONE"
-  "IBAN"
-  "DOB"
-  "CARD_GROUPED"
-)
-pattern_regexes=(
-  # Email — RFC 5322 lite. High confidence; trivially recognisable.
-  '[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}'
-
-  # UK postcode — 1-2 letters, 1-2 digits (optional trailing letter), space, digit, 2 letters.
-  '\b[A-Z]{1,2}[0-9][A-Z0-9]?\s+[0-9][A-Z]{2}\b'
-
-  # UK NI number — strict character classes exclude D/F/I/Q/U/V first, O second.
-  '\b[A-CEGHJ-PR-TW-Z][A-CEGHJ-NPR-TW-Z]\s?[0-9]{2}\s?[0-9]{2}\s?[0-9]{2}\s?[A-D]\b'
-
-  # UK phone — +44 prefix or leading 0, allowing optional spaces between digits.
-  '(?:\+44|0)(?:\s?[0-9]){9,10}\b'
-
-  # IBAN — 2-letter country, 2 check digits, up to 30 alphanumerics.
-  '\b[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}\b'
-
-  # DOB — d/m/y with 2 or 4-digit year, slash/dash/dot separators.
-  '\b(?:0?[1-9]|[12][0-9]|3[01])[\/\-\.](?:0?[1-9]|1[0-2])[\/\-\.](?:19|20)[0-9]{2}\b'
-
-  # 16-digit grouped number — credit-card shaped (4-4-4-4 with space/dash).
-  '\b(?:[0-9]{4}[\s\-]){3}[0-9]{4}\b'
-)
-pattern_confs=(
-  "high"
-  "high"
-  "high"
-  "high"
-  "high"
-  "low"
-  "low"
-)
+# Shared pattern definitions, sourced from the file deployed alongside this
+# hook. Defines pattern_names, pattern_regexes, pattern_confs (three parallel
+# positional arrays). Updates to detectors live in pii-patterns.sh so this
+# hook and the pre-commit scanner detect the same signals.
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=pii-patterns.sh
+. "$script_dir/pii-patterns.sh"
 
 # Match each pattern via Perl and aggregate hits.
 #
