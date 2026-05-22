@@ -18,32 +18,41 @@ jobs:
   pre-commit:
     runs-on: ubuntu-latest
     steps:
+      - name: Ensure bash and jq are available
+        # Real GitHub ubuntu-latest has both pre-installed. node:lts-alpine
+        # (used by act for local CI testing) has neither: Alpine's default
+        # shell is ash, and jq is not in the base image. This step bootstraps
+        # both via apk before any other step runs — every later step assumes
+        # bash, so this has to come first and run under sh.
+        #
+        # The shell: sh override here is critical: without it act would try
+        # to run this very step with bash, which is what we're about to
+        # install. The fallback path on apt-based images skips both checks
+        # since bash and jq are already there.
+        shell: sh
+        run: |
+          if ! command -v bash >/dev/null 2>&1 && command -v apk >/dev/null 2>&1; then
+            apk add --no-cache bash
+          fi
+          if ! command -v jq >/dev/null 2>&1; then
+            if command -v apt-get >/dev/null 2>&1; then
+              apt-get update -qq
+              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends jq
+            elif command -v apk >/dev/null 2>&1; then
+              apk add --no-cache jq
+            else
+              echo "Cannot install jq: neither apt-get nor apk found." >&2
+              exit 1
+            fi
+          fi
+          jq --version
+
       - name: Check out
         uses: actions/checkout@v4
         with:
           # Need full history so the PII scanner can resolve staged blobs
           # against the merge base on PR runs.
           fetch-depth: 0
-
-      - name: Install perl and jq if missing
-        # The pre-commit hook (pii-staged-scan.sh) forks perl for regex
-        # scanning and uses jq for staged-blob JSON. Pre-installed on real
-        # ubuntu-latest; install explicitly under act / minimal images.
-        run: |
-          missing=()
-          command -v perl >/dev/null 2>&1 || missing+=(perl)
-          command -v jq   >/dev/null 2>&1 || missing+=(jq)
-          if [ "${#missing[@]}" -eq 0 ]; then
-            echo "perl and jq already installed; no action needed."
-          elif command -v apt-get >/dev/null 2>&1; then
-            apt-get update -qq
-            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
-          elif command -v apk >/dev/null 2>&1; then
-            apk add --no-cache "${missing[@]}"
-          else
-            echo "Cannot install missing deps (${missing[*]}): neither apt-get nor apk found." >&2
-            exit 1
-          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -74,28 +83,31 @@ jobs:
   hook-tests:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out
-        uses: actions/checkout@v4
-
-      - name: Install jq if missing
-        # awk and git are POSIX-mandated and present in every base image
-        # (busybox awk on Alpine, mawk on Ubuntu, BWK on macOS). jq is not —
-        # it's pre-installed on real GitHub ubuntu-latest, but not in minimal
-        # images like Alpine. Install only when missing.
+      - name: Ensure bash and jq are available
+        # See the pre-commit job for the rationale — node:lts-alpine (act's
+        # default) has neither bash nor jq, and every later step assumes
+        # bash. Run under sh so this step can bootstrap bash itself.
+        shell: sh
         run: |
-          if command -v jq >/dev/null 2>&1; then
-            echo "jq already installed; no action needed."
-          elif command -v apt-get >/dev/null 2>&1; then
-            apt-get update -qq
-            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends jq
-          elif command -v apk >/dev/null 2>&1; then
-            apk add --no-cache jq
-          else
-            echo "Cannot install jq: neither apt-get nor apk found." >&2
-            exit 1
+          if ! command -v bash >/dev/null 2>&1 && command -v apk >/dev/null 2>&1; then
+            apk add --no-cache bash
+          fi
+          if ! command -v jq >/dev/null 2>&1; then
+            if command -v apt-get >/dev/null 2>&1; then
+              apt-get update -qq
+              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends jq
+            elif command -v apk >/dev/null 2>&1; then
+              apk add --no-cache jq
+            else
+              echo "Cannot install jq: neither apt-get nor apk found." >&2
+              exit 1
+            fi
           fi
           awk --version 2>/dev/null | head -1 || echo "awk: $(command -v awk)"
           jq --version
+
+      - name: Check out
+        uses: actions/checkout@v4
 
       - name: Run all hook regression suites
         # ClaudeCode/tests/run_all.sh runs four suites:
