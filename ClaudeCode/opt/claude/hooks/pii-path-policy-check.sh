@@ -1,16 +1,25 @@
 #!/usr/bin/env bash
-# PreToolUse hook for Read. Deterministic path/extension denylist for files
-# whose names suggest they may contain PII (personally identifiable information).
+# PreToolUse hook for Read, Edit, Write, and MultiEdit. Deterministic
+# path/extension denylist for files whose names suggest they may contain
+# PII (personally identifiable information).
 #
 # Layer 1 of the PII-handling controls. Matches the file path the agent is
-# about to Read against a fixed list of patterns commonly used for data
+# about to access against a fixed list of patterns commonly used for data
 # exports, member/user records, referrals, contact lists, and database dumps.
-# A match denies the Read outright via hookSpecificOutput.
+# A match denies the operation outright via hookSpecificOutput.
+#
+# Registering against Read, Edit, Write, and MultiEdit catches every tool
+# whose tool_input carries a `file_path` field — so the hook fires whether
+# the agent is trying to ingest the file's content (Read) or create/modify
+# it under a PII-suggestive name (Write, Edit, MultiEdit). Tools that use a
+# different field (e.g. NotebookEdit's `notebook_path`) are out of scope:
+# the hook exits silently when `file_path` is empty.
 #
 # This layer catches files by name only. Layer 2 (pii-content-sniff.sh) scans
-# the file contents to catch misnamed files. The two layers are independent
-# and registered separately in managed-settings.json so either can be tuned
-# or audited without disturbing the other.
+# the file contents to catch misnamed files (Read only — the contents of a
+# Write/Edit don't exist on disk at the point the hook fires). The two layers
+# are independent and registered separately in managed-settings.json so
+# either can be tuned or audited without disturbing the other.
 #
 # To add a new pattern:
 #   Append a glob to the deny_patterns array. The script uses bash glob

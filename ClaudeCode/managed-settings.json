@@ -268,12 +268,17 @@
         ]
       },
       {
-        "matcher": "Read",
+        "matcher": "Read|Edit|Write|MultiEdit",
         "hooks": [
           {
             "type": "command",
             "command": "/opt/claude/hooks/pii-path-policy-check.sh"
-          },
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
           {
             "type": "command",
             "command": "/opt/claude/hooks/pii-content-sniff.sh"

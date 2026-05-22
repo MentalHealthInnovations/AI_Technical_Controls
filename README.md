@@ -80,7 +80,7 @@ Two roles: **policy** hooks make allow/deny decisions; **audit** hooks observe a
 |---|---|---|
 | `bash-policy-check.sh` | policy | `PreToolUse` / Bash |
 | `webfetch-policy-check.sh` | policy | `PreToolUse` / WebFetch |
-| `pii-path-policy-check.sh` | policy | `PreToolUse` / Read |
+| `pii-path-policy-check.sh` | policy | `PreToolUse` / Read, Edit, Write, MultiEdit |
 | `pii-content-sniff.sh` | policy | `PreToolUse` / Read |
 | `output-redact.sh` | policy | `PostToolUse` / Bash, Read, WebFetch |
 | `tool-audit.sh` | audit | `PreToolUse` / Edit, Write, Task, SlashCommand, Read |
@@ -89,7 +89,7 @@ Two roles: **policy** hooks make allow/deny decisions; **audit** hooks observe a
 
 - **`bash-policy-check.sh`** — enforces policy beyond glob matching; catches obfuscation and compound expressions that would bypass simple deny patterns.
 - **`webfetch-policy-check.sh`** — enforces the domain allowlist.
-- **`pii-path-policy-check.sh`** — deterministic denylist for file paths that suggest PII content: data exports (`*-export.csv`, `members.xlsx`), record dumps (`users.sql`, `customers.json`), and files inside data folders (`referrals/`, `exports/`, `dumps/`, `pii/`, `dsar/`). Matched case-insensitively against the basename and any parent directory segment. This catches files by name only — see [CLAUDE.md](ClaudeCode/CLAUDE.md) for the agent-behaviour layer that handles content discovered after a read.
+- **`pii-path-policy-check.sh`** — deterministic denylist for file paths that suggest PII content: data exports (`*-export.csv`, `members.xlsx`), record dumps (`users.sql`, `customers.json`), and files inside data folders (`referrals/`, `exports/`, `dumps/`, `pii/`, `dsar/`). Matched case-insensitively against the basename and any parent directory segment. Fires on any tool whose `tool_input` carries a `file_path` (Read, Edit, Write, MultiEdit), so the agent cannot create a PII-named file via Write/Edit either — see [CLAUDE.md](ClaudeCode/CLAUDE.md) for the agent-behaviour layer that handles content discovered after a read.
 - **`pii-content-sniff.sh`** — content-level fallback for misnamed files. Reads the first 64 KiB of the target file and scans for emails, UK postcodes, UK phone numbers, UK National Insurance numbers, IBANs, dates of birth, and grouped 16-digit card-shaped sequences. Denies the Read when at least 3 distinct categories appear or any single high-confidence pattern hits 10+ times. Binaries (NUL byte in the first KiB) are skipped — the path-policy hook owns those by name. Patterns are sourced from `pii-patterns.sh` and thresholds are tunable in-file.
 - **`output-redact.sh`** — scans tool output for secrets. On match, the result is blocked before entering Claude's context. The UI transcript may still show the raw output, but Claude cannot read or act on it. Patterns (defined in `lib/redact.sh`): PEM blocks, AWS keys, GitHub PATs (classic and fine-grained), `sk-` keys, Slack tokens, JWTs, Bearer headers, generic `key=value` / `password=value` assignments, connection strings, and Stripe/Twilio/SendGrid keys.
 - **`tool-audit.sh`** — pure observer. Logs file paths and sizes for Edit/Write, subagent type and prompt length for Task, the command string for SlashCommand, and file path / offset / limit for Read. Never blocks.

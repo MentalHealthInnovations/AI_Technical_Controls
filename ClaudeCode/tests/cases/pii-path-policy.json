@@ -29,3 +29,7 @@
 {"name": "test fixture users.csv inside tests dir (still denied - filename wins)", "input": {"file_path": "/repo/tests/fixtures/users.csv"}, "expect": "deny"}
 {"name": "innocuous file inside data/ dir (data/ not in deny list)", "input": {"file_path": "/repo/data/schema.md"}, "expect": "unset"}
 {"name": "empty file_path (no-op, exit 0 without decision)", "input": {"file_path": ""}, "expect": "unset"}
+{"name": "Edit-shaped payload against users.csv (same file_path field)", "input": {"file_path": "/repo/data/users.csv", "old_string": "x", "new_string": "y"}, "expect": "deny"}
+{"name": "Write-shaped payload creating customers.json", "input": {"file_path": "/repo/data/customers.json", "content": "{}"}, "expect": "deny"}
+{"name": "Write-shaped payload creating innocuous file", "input": {"file_path": "/repo/src/main.go", "content": "package main"}, "expect": "unset"}
+{"name": "NotebookEdit-shaped payload (notebook_path, no file_path)", "input": {"notebook_path": "/repo/analysis.ipynb", "new_source": "x"}, "expect": "unset"}

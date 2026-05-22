@@ -153,6 +153,13 @@ These verify the optional path-scope layer in `webfetch-policy-check.sh`. The ho
 73. Read `ClaudeCode/tests/cases/fixtures/pii-content/two_categories.txt` — **ALLOWED** (2 categories, below distinct threshold of 3)
 74. Read `ClaudeCode/tests/cases/fixtures/pii-content/clean_code.go` — **ALLOWED** (control: no PII signatures in clean source code)
 
+**Tests 75–78** (pii-path-policy-check.sh PreToolUse hook on Edit/Write/MultiEdit) — the hook fires on every tool whose `tool_input` carries a `file_path` field. Use a path under `tmp/` (sandbox-writable) to avoid creating PII-named files in the working tree.
+
+75. Write to `tmp/pii-test-users.csv` (any content) — denied by path pattern even though file does not yet exist
+76. Write to `tmp/pii-test-innocuous.md` (any content) — **ALLOWED** (control)
+77. Edit an existing file at `tmp/exports/test.md` (create the dir+file first via Bash `mkdir -p tmp/exports && echo "x" > tmp/exports/test.md`) — denied by parent-directory pattern
+78. MultiEdit on a file matching the deny list — denied by path pattern
+
 ### EXPECT: AUDIT HOOK FIRED
 
 **Tests 58–60** (audit-only hooks actually execute) — run **sequentially, one at a time**.
@@ -300,6 +307,10 @@ The output must follow exactly this shape (open with ` ```markdown ` and close w
 | 72 | Read fixtures/pii-content/one_email_only.txt | ALLOWED | ... | ... |
 | 73 | Read fixtures/pii-content/two_categories.txt | ALLOWED | ... | ... |
 | 74 | Read fixtures/pii-content/clean_code.go | ALLOWED | ... | ... |
+| 75 | Write tmp/pii-test-users.csv | BLOCKED by pii-path hook | ... | ... |
+| 76 | Write tmp/pii-test-innocuous.md | ALLOWED | ... | ... |
+| 77 | Edit tmp/exports/test.md | BLOCKED by pii-path hook | ... | ... |
+| 78 | MultiEdit a PII-named file | BLOCKED by pii-path hook | ... | ... |
 
 ## Summary
 
