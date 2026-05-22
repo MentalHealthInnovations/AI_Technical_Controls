@@ -75,3 +75,11 @@ This is the same standard already applied to tests elsewhere in this environment
 - Do **not** write the message to a file and pass `-F`, do **not** use heredocs (`<<'EOF'`), and do **not** use `$(cat ...)` or other command substitution. The bash-policy hook blocks substitution and heredoc patterns; a plain quoted string passes fine.
 - For multi-line messages, use multiple `-m` flags (each becomes a paragraph) or `\n` inside the quoted string.
 - Follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/): `type(scope): description`. Common types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `ci`. Include a scope when it adds clarity (e.g. `feat(guardrails):`, `fix(hook):`).
+
+## Pull requests
+
+- **Always use the repository's PR template.** Before drafting any PR body, read [.github/pull_request_template.md](.github/pull_request_template.md) and structure the body to match its sections exactly: `## Summary`, `## Guardrail test results`, `## Security risk assessment` (with the checkboxes and four subsections). Do not invent your own structure or skip sections — the template encodes review requirements (CODEOWNER expectations, security risk capture) that the repo depends on.
+- `gh pr create --body` does **not** automatically apply the template — you have to construct the body to match. When generating the body, read the template file in this turn rather than relying on memory: it may have changed.
+- If a checkbox section asks "does this affect X?", tick the box if it does, and complete the risk subsections — do not leave them as the template's placeholder comments. If a section genuinely doesn't apply, write "None" rather than deleting it.
+- For changes touching hook scripts, sandbox config, permission rules, the domain allowlist, `managed-settings.json`, or the test skill, include a full `/test-guardrails` run in the collapsed `<details>` block. Don't paste a truncated run; the template expects the complete markdown results table.
+- Use a Conventional Commits-style PR title to match the commit-message convention (`type(scope): description`). The PR title becomes the squash-merge commit message by default.
