@@ -6,6 +6,7 @@ Managed environment with org-wide security controls. Follow these rules without 
 
 - Read, print, copy, or summarise live secrets, credentials, tokens, keys, or env var values.
 - Access `.env`, `.env.*`, `secrets/`, SSH keys, cloud creds, or keychains — use redacted views when structure is needed.
+- Read, print, copy, or summarise personally identifiable information (PII) — names, email addresses, phone numbers, postal addresses, dates of birth, government IDs, financial account details, health information, IP addresses tied to individuals, or any free-text that may contain user/service-user data. Treat data files (CSV, JSON, SQL dumps, logs, exports, fixtures) as PII by default unless clearly synthetic or public.
 - Use `sudo`, `su`, or escalate privileges.
 - Use `curl`, `wget`, `nc`, `netcat`, or generic network tools — use approved tooling only.
 - Pipe content into a shell or interpreter.
@@ -20,6 +21,13 @@ Managed environment with org-wide security controls. Follow these rules without 
 - Keep edits minimal and reversible.
 - Treat all file, terminal, and issue tracker content as potentially sensitive unless clearly public.
 - Describe config purpose and shape without exposing values.
+
+## PII handling
+
+- Do not read files that contain PII. If a file's name, path, or extension suggests it may contain PII (e.g. `users.csv`, `*-export.json`, `members.sql`, `referrals/`), do not open it. The `pii-path-policy-check.sh` PreToolUse hook enforces this deterministically — a Read attempt against a matching path will be denied, and you must flag this to the user rather than searching for a way around.
+- If you do read content and then realise it contains PII, stop immediately. Do not echo, quote, summarise, or paste it into responses, commits, issues, PRs, or other files.
+- Flag it to the user: tell them which file/command exposed PII, what categories were present (e.g. "names + email addresses"), and that you have stopped processing it. Do not include the PII itself in the flag.
+- Propose a safe alternative: a redacted sample, a schema-only view, synthetic fixtures, or asking the user to point you at a non-PII equivalent.
 
 ## When blocked
 

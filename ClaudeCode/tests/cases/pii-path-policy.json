@@ -1,0 +1,31 @@
+{"name": "users.csv", "input": {"file_path": "/repo/data/users.csv"}, "expect": "deny"}
+{"name": "Users.CSV (case-insensitive)", "input": {"file_path": "/repo/data/Users.CSV"}, "expect": "deny"}
+{"name": "members.xlsx", "input": {"file_path": "/repo/data/members.xlsx"}, "expect": "deny"}
+{"name": "customers.json", "input": {"file_path": "/repo/data/customers.json"}, "expect": "deny"}
+{"name": "contacts.tsv", "input": {"file_path": "/repo/data/contacts.tsv"}, "expect": "deny"}
+{"name": "patients.parquet", "input": {"file_path": "/repo/data/patients.parquet"}, "expect": "deny"}
+{"name": "service_users.json", "input": {"file_path": "/repo/data/service_users.json"}, "expect": "deny"}
+{"name": "service-users.csv", "input": {"file_path": "/repo/data/service-users.csv"}, "expect": "deny"}
+{"name": "referrals.sql", "input": {"file_path": "/repo/data/referrals.sql"}, "expect": "deny"}
+{"name": "members-export-2026.xlsx", "input": {"file_path": "/repo/data/members-export-2026.xlsx"}, "expect": "deny"}
+{"name": "customers_export.json", "input": {"file_path": "/repo/data/customers_export.json"}, "expect": "deny"}
+{"name": "db-dump.sql", "input": {"file_path": "/repo/data/db-dump.sql"}, "expect": "deny"}
+{"name": "users-backup.sql", "input": {"file_path": "/repo/data/users-backup.sql"}, "expect": "deny"}
+{"name": "dump.sql", "input": {"file_path": "/repo/data/dump.sql"}, "expect": "deny"}
+{"name": "pii_records.txt (token match)", "input": {"file_path": "/repo/notes/pii_records.txt"}, "expect": "deny"}
+{"name": "gdpr-export.json (token match)", "input": {"file_path": "/repo/notes/gdpr-export.json"}, "expect": "deny"}
+{"name": "subject-access-2026.pdf (token match)", "input": {"file_path": "/repo/notes/subject-access-2026.pdf"}, "expect": "deny"}
+{"name": "dsar-2026.json (token match)", "input": {"file_path": "/repo/notes/dsar-2026.json"}, "expect": "deny"}
+{"name": "file inside referrals/ dir", "input": {"file_path": "/repo/referrals/2026-01.txt"}, "expect": "deny"}
+{"name": "file inside exports/ dir", "input": {"file_path": "/repo/exports/jan.csv"}, "expect": "deny"}
+{"name": "file inside dumps/ dir", "input": {"file_path": "/repo/dumps/snapshot.bin"}, "expect": "deny"}
+{"name": "file inside pii/ dir", "input": {"file_path": "/repo/pii/notes.md"}, "expect": "deny"}
+{"name": "file inside dsar/ dir", "input": {"file_path": "/repo/dsar/2026-01.txt"}, "expect": "deny"}
+{"name": "file inside personal-data/ dir", "input": {"file_path": "/repo/personal-data/foo.md"}, "expect": "deny"}
+{"name": "file inside service-users/ dir", "input": {"file_path": "/repo/service-users/list.md"}, "expect": "deny"}
+{"name": "source file (allowed)", "input": {"file_path": "/repo/src/main.go"}, "expect": "unset"}
+{"name": "README.md (allowed)", "input": {"file_path": "/repo/README.md"}, "expect": "unset"}
+{"name": "package.json (allowed, not in deny list)", "input": {"file_path": "/repo/package.json"}, "expect": "unset"}
+{"name": "test fixture users.csv inside tests dir (still denied - filename wins)", "input": {"file_path": "/repo/tests/fixtures/users.csv"}, "expect": "deny"}
+{"name": "innocuous file inside data/ dir (data/ not in deny list)", "input": {"file_path": "/repo/data/schema.md"}, "expect": "unset"}
+{"name": "empty file_path (no-op, exit 0 without decision)", "input": {"file_path": ""}, "expect": "unset"}
