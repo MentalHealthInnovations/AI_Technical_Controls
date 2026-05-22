@@ -12,6 +12,7 @@ A layered configuration system that makes Claude Code safer to use at scale. The
 | `ClaudeCode/opt/claude/hooks/bash-policy-check.sh` | Pre-execution policy hook for Bash |
 | `ClaudeCode/opt/claude/hooks/webfetch-policy-check.sh` | Pre-execution policy hook for WebFetch |
 | `ClaudeCode/opt/claude/hooks/pii-path-policy-check.sh` | Pre-execution PII path/extension denylist for Read |
+| `ClaudeCode/opt/claude/hooks/pii-content-sniff.sh` | Pre-execution PII content scanner for Read (catches misnamed files) |
 | `ClaudeCode/opt/claude/hooks/output-redact.sh` | Post-execution secret redaction for Bash/Read/WebFetch |
 | `ClaudeCode/opt/claude/hooks/tool-audit.sh` | Audit-only hook for Edit, Write, Task, SlashCommand, Read |
 | `ClaudeCode/opt/claude/hooks/prompt-submit.sh` | Audit-only hook for `UserPromptSubmit` (logs redacted prompt text) |
@@ -77,6 +78,7 @@ Two roles: **policy** hooks make allow/deny decisions; **audit** hooks observe a
 | `bash-policy-check.sh` | policy | `PreToolUse` / Bash |
 | `webfetch-policy-check.sh` | policy | `PreToolUse` / WebFetch |
 | `pii-path-policy-check.sh` | policy | `PreToolUse` / Read |
+| `pii-content-sniff.sh` | policy | `PreToolUse` / Read |
 | `output-redact.sh` | policy | `PostToolUse` / Bash, Read, WebFetch |
 | `tool-audit.sh` | audit | `PreToolUse` / Edit, Write, Task, SlashCommand, Read |
 | `prompt-submit.sh` | audit | `UserPromptSubmit` |
@@ -85,6 +87,7 @@ Two roles: **policy** hooks make allow/deny decisions; **audit** hooks observe a
 - **`bash-policy-check.sh`** — enforces policy beyond glob matching; catches obfuscation and compound expressions that would bypass simple deny patterns.
 - **`webfetch-policy-check.sh`** — enforces the domain allowlist.
 - **`pii-path-policy-check.sh`** — deterministic denylist for file paths that suggest PII content: data exports (`*-export.csv`, `members.xlsx`), record dumps (`users.sql`, `customers.json`), and files inside data folders (`referrals/`, `exports/`, `dumps/`, `pii/`, `dsar/`). Matched case-insensitively against the basename and any parent directory segment. This catches files by name only — see [CLAUDE.md](ClaudeCode/CLAUDE.md) for the agent-behaviour layer that handles content discovered after a read.
+- **`pii-content-sniff.sh`** — content-level fallback for misnamed files. Reads the first 64 KiB of the target file and scans for emails, UK postcodes, UK phone numbers, UK National Insurance numbers, IBANs, dates of birth, and grouped 16-digit card-shaped sequences. Denies the Read when at least 3 distinct categories appear or any single high-confidence pattern hits 10+ times. Binaries (NUL byte in the first KiB) are skipped — the path-policy hook owns those by name. Patterns and thresholds are tunable in-file.
 - **`output-redact.sh`** — scans tool output for secrets. On match, the result is blocked before entering Claude's context. The UI transcript may still show the raw output, but Claude cannot read or act on it. Patterns (defined in `lib/redact.sh`): PEM blocks, AWS keys, GitHub PATs (classic and fine-grained), `sk-` keys, Slack tokens, JWTs, Bearer headers, generic `key=value` / `password=value` assignments, connection strings, and Stripe/Twilio/SendGrid keys.
 - **`tool-audit.sh`** — pure observer. Logs file paths and sizes for Edit/Write, subagent type and prompt length for Task, the command string for SlashCommand, and file path / offset / limit for Read. Never blocks.
 - **`prompt-submit.sh`** — captures every prompt the user submits. The prompt text is passed through the same redaction patterns as tool output, so credentials pasted into prompts are stripped before they reach the audit log. The list of patterns that fired is recorded so an analyst can see *that* a secret was present without storing it.
@@ -99,6 +102,7 @@ Every hook writes one structured JSON Lines record per invocation to `~/.claude/
 | `bash-policy-check.sh` | `~/.claude/debug/bash-policy.jsonl` |
 | `webfetch-policy-check.sh` | `~/.claude/debug/webfetch-policy.jsonl` |
 | `pii-path-policy-check.sh` | `~/.claude/debug/pii-path-policy.jsonl` |
+| `pii-content-sniff.sh` | `~/.claude/debug/pii-content-sniff.jsonl` |
 | `output-redact.sh` | `~/.claude/debug/output-redact.jsonl` |
 | `tool-audit.sh` | `~/.claude/debug/tool-audit.jsonl` |
 | `prompt-submit.sh` | `~/.claude/debug/prompt-submit.jsonl` |
@@ -143,6 +147,7 @@ Manually:
 : > ~/.claude/debug/bash-policy.jsonl
 : > ~/.claude/debug/webfetch-policy.jsonl
 : > ~/.claude/debug/pii-path-policy.jsonl
+: > ~/.claude/debug/pii-content-sniff.jsonl
 : > ~/.claude/debug/output-redact.jsonl
 : > ~/.claude/debug/tool-audit.jsonl
 : > ~/.claude/debug/prompt-submit.jsonl
@@ -153,13 +158,14 @@ For automated rotation, drop a `newsyslog` config into `/etc/newsyslog.d/`. Beca
 
 ```
 # /etc/newsyslog.d/claude-hooks-alice.conf
-/Users/alice/.claude/debug/bash-policy.jsonl     alice:staff  640  7  -1  $D0  ZN
-/Users/alice/.claude/debug/webfetch-policy.jsonl alice:staff  640  7  -1  $D0  ZN
-/Users/alice/.claude/debug/pii-path-policy.jsonl alice:staff  640  7  -1  $D0  ZN
-/Users/alice/.claude/debug/output-redact.jsonl   alice:staff  640  7  -1  $D0  ZN
-/Users/alice/.claude/debug/tool-audit.jsonl      alice:staff  640  7  -1  $D0  ZN
-/Users/alice/.claude/debug/prompt-submit.jsonl   alice:staff  640  7  -1  $D0  ZN
-/Users/alice/.claude/debug/session-audit.jsonl   alice:staff  640  7  -1  $D0  ZN
+/Users/alice/.claude/debug/bash-policy.jsonl      alice:staff  640  7  -1  $D0  ZN
+/Users/alice/.claude/debug/webfetch-policy.jsonl  alice:staff  640  7  -1  $D0  ZN
+/Users/alice/.claude/debug/pii-path-policy.jsonl  alice:staff  640  7  -1  $D0  ZN
+/Users/alice/.claude/debug/pii-content-sniff.jsonl alice:staff 640  7  -1  $D0  ZN
+/Users/alice/.claude/debug/output-redact.jsonl    alice:staff  640  7  -1  $D0  ZN
+/Users/alice/.claude/debug/tool-audit.jsonl       alice:staff  640  7  -1  $D0  ZN
+/Users/alice/.claude/debug/prompt-submit.jsonl    alice:staff  640  7  -1  $D0  ZN
+/Users/alice/.claude/debug/session-audit.jsonl    alice:staff  640  7  -1  $D0  ZN
 ```
 
 Daily rotation, 7 compressed archives, no daemon signal. See `man 5 newsyslog.conf`.
@@ -221,6 +227,7 @@ Engineers may improve convenience inside the rails; they do not control the rail
 | Allow a currently-blocked Bash command | `bash-policy-check.sh` |
 | New/updated secret-detection pattern | `opt/claude/hooks/lib/redact.sh` |
 | New/updated PII path or directory pattern | `pii-path-policy-check.sh` |
+| New/updated PII content detector or threshold tweak | `pii-content-sniff.sh` |
 | New MCP server | `managed-settings.json` |
 | Behavioural guidance change | `CLAUDE.md` |
 | Team-wide repo allow rule | `.claude/settings.json` in that repo (not here) |

@@ -144,6 +144,15 @@ These verify the optional path-scope layer in `webfetch-policy-check.sh`. The ho
 67. Read `ClaudeCode/tests/cases/fixtures/dsar/case-1.md` — denied by parent directory `dsar/`
 68. Read `ClaudeCode/tests/cases/fixtures/innocuous.md` — **ALLOWED** (control: confirms the hook is not denying every Read in the fixtures tree)
 
+**Tests 69–74** (pii-content-sniff.sh PreToolUse hook on Read) — these exercise the PII content scanner against fixtures whose paths are deliberately innocuous (so the path-policy hook does not pre-empt them). All fixture content is synthetic. Run each test as a separate sequential `Read` tool call.
+
+69. Read `ClaudeCode/tests/cases/fixtures/pii-content/three_categories.txt` — denied (3 distinct categories: email + postcode + phone)
+70. Read `ClaudeCode/tests/cases/fixtures/pii-content/ni_postcode_phone.txt` — denied (3 distinct categories without email)
+71. Read `ClaudeCode/tests/cases/fixtures/pii-content/many_emails.txt` — denied (11 emails, density trip)
+72. Read `ClaudeCode/tests/cases/fixtures/pii-content/one_email_only.txt` — **ALLOWED** (single email is below both thresholds)
+73. Read `ClaudeCode/tests/cases/fixtures/pii-content/two_categories.txt` — **ALLOWED** (2 categories, below distinct threshold of 3)
+74. Read `ClaudeCode/tests/cases/fixtures/pii-content/clean_code.go` — **ALLOWED** (control: no PII signatures in clean source code)
+
 ### EXPECT: AUDIT HOOK FIRED
 
 **Tests 58–60** (audit-only hooks actually execute) — run **sequentially, one at a time**.
@@ -285,6 +294,12 @@ The output must follow exactly this shape (open with ` ```markdown ` and close w
 | 66 | Read fixtures/exports/jan.md | BLOCKED by pii-path hook | ... | ... |
 | 67 | Read fixtures/dsar/case-1.md | BLOCKED by pii-path hook | ... | ... |
 | 68 | Read fixtures/innocuous.md | ALLOWED | ... | ... |
+| 69 | Read fixtures/pii-content/three_categories.txt | BLOCKED by pii-content-sniff | ... | ... |
+| 70 | Read fixtures/pii-content/ni_postcode_phone.txt | BLOCKED by pii-content-sniff | ... | ... |
+| 71 | Read fixtures/pii-content/many_emails.txt | BLOCKED by pii-content-sniff | ... | ... |
+| 72 | Read fixtures/pii-content/one_email_only.txt | ALLOWED | ... | ... |
+| 73 | Read fixtures/pii-content/two_categories.txt | ALLOWED | ... | ... |
+| 74 | Read fixtures/pii-content/clean_code.go | ALLOWED | ... | ... |
 
 ## Summary
 

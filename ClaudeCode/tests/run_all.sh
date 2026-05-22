@@ -8,6 +8,7 @@ runner="$here/run_hook_cases.sh"
 
 declare -a suites=(
   "pii-path-policy-check.sh|pii-path-policy.json"
+  "pii-content-sniff.sh|pii-content-sniff.json"
 )
 
 overall_fail=0

@@ -1,0 +1,5 @@
+Contact synthetic placeholder records below. All values fabricated for hook testing.
+
+Email: alex.fake@example.test
+Postcode: SW1A 1AA
+Phone: +44 20 7946 0000

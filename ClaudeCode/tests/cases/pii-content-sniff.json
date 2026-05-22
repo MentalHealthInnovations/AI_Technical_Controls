@@ -1,0 +1,12 @@
+{"name": "three distinct categories (email+postcode+phone) trips distinct", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/three_categories.txt"}, "expect": "deny"}
+{"name": "three distinct categories (NI+postcode+phone) trips distinct", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/ni_postcode_phone.txt"}, "expect": "deny"}
+{"name": "three categories mixing low-confidence (email+DOB+card) trips distinct", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/email_dob_card.txt"}, "expect": "deny"}
+{"name": "11 emails trips density", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/many_emails.txt"}, "expect": "deny"}
+{"name": "one email - no trip", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/one_email_only.txt"}, "expect": "unset"}
+{"name": "two high-confidence categories - below distinct trip", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/two_categories.txt"}, "expect": "unset"}
+{"name": "one IBAN only - no trip", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/iban_only.txt"}, "expect": "unset"}
+{"name": "two low-confidence categories (DOB+card) - no trip", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/dob_card.txt"}, "expect": "unset"}
+{"name": "clean Go source - no trip", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/clean_code.go"}, "expect": "unset"}
+{"name": "binary file - skipped by NUL-byte detector", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/binary.bin"}, "expect": "unset"}
+{"name": "nonexistent file - exit 0 (Read will fail naturally)", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/does-not-exist.txt"}, "expect": "unset"}
+{"name": "empty file_path", "input": {"file_path": ""}, "expect": "unset"}

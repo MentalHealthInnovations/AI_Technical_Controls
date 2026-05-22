@@ -1,0 +1,11 @@
+synthetic-1@example.test
+synthetic-2@example.test
+synthetic-3@example.test
+synthetic-4@example.test
+synthetic-5@example.test
+synthetic-6@example.test
+synthetic-7@example.test
+synthetic-8@example.test
+synthetic-9@example.test
+synthetic-10@example.test
+synthetic-11@example.test

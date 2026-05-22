@@ -273,6 +273,10 @@
           {
             "type": "command",
             "command": "/opt/claude/hooks/pii-path-policy-check.sh"
+          },
+          {
+            "type": "command",
+            "command": "/opt/claude/hooks/pii-content-sniff.sh"
           }
         ]
       },
