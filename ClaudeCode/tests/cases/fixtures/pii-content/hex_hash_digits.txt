@@ -1,0 +1,8 @@
+Regression fixture for the UK_PHONE intra-token-boundary fix. Before the
+lookbehind was added, the regex matched 10-digit runs inside hex hashes
+like the trailing portion of c346a67110f3e17a65d4a46316f062b4af6b88d8fc3d5fb4092a6f0669719602
+(matching "0669719602" with no boundary before the leading 0).
+
+After the fix, the regex requires a non-alphanumeric character before the
+prefix, so this fixture should produce zero UK_PHONE matches even though it
+contains many sequences of 10+ digits inside hex tokens.

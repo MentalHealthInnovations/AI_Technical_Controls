@@ -16,9 +16,7 @@ Unlike `../pii-content/` (which is excluded from the pre-commit scanner because 
 
 The runner records every fixture's per-pattern counts. Entries below are scores worth being aware of — they don't fail the suite, but they consume budget against the thresholds.
 
-| Fixture | Pattern | Count | Notes |
-|---|---|---|---|
-| `terraform.lock.hcl.fragment` | `UK_PHONE` | 1 | The phone regex permits whitespace between digits, so it can stretch across hex hash tokens. Single hit, far below density threshold (10), but a sign the regex may want a tighter inter-digit boundary. Investigate if more lockfile-shaped fixtures push this higher. |
+_None currently._ The previous `terraform.lock.hcl.fragment` `UK_PHONE` hit was resolved by tightening the regex to require a non-alphanumeric boundary before the prefix and constraining inter-digit whitespace to single space/tab.
 
 ## Adding a new fixture
 

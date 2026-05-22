@@ -10,3 +10,6 @@
 {"name": "binary file - skipped by NUL-byte detector", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/binary.bin"}, "expect": "unset"}
 {"name": "nonexistent file - exit 0 (Read will fail naturally)", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/does-not-exist.txt"}, "expect": "unset"}
 {"name": "empty file_path", "input": {"file_path": ""}, "expect": "unset"}
+{"name": "phone digits split across lines - no trip after \\s tightening", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/cross_line_phone.txt"}, "expect": "unset"}
+{"name": "hex hash 10-digit runs - no trip after intra-word boundary fix", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/hex_hash_digits.txt"}, "expect": "unset"}
+{"name": "tab-separated phone still matches (positive control after tightening)", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/phone_with_tab.txt"}, "expect": "deny"}

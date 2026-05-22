@@ -66,6 +66,10 @@ printf '  verdict\n'
 
 fail=0
 total=0
+# Collect sample matches for any non-zero count, printed after the table so
+# reviewers can see WHAT was matched — invaluable for diagnosing latent
+# false-positive risk (e.g. a UK_PHONE hit inside a hex hash).
+samples_out=""
 
 for fixture in "${fixtures[@]}"; do
   total=$((total + 1))
@@ -94,15 +98,31 @@ for fixture in "${fixtures[@]}"; do
   printf '  %-40s' "$short_rel"
   n="${#pattern_names[@]}"
   for ((i=0; i<n; i++)); do
+    name="${pattern_names[$i]}"
     regex="${pattern_regexes[$i]}"
     count="$(printf '%s' "$sample" | perl -ne 'BEGIN{$c=0} while(/'"$regex"'/g){$c++} END{print $c}' 2>/dev/null)"
     [[ -z "$count" ]] && count=0
     printf ' %-*s' "$pname_width" "$count"
+    if [[ "$count" -gt 0 ]]; then
+      # Capture up to 3 sample matches so the report shows what's tripping
+      # the count, not just that something is. Single-quoted in the diagnostic
+      # to make whitespace visible.
+      matches="$(printf '%s' "$sample" | perl -ne 'while(/'"$regex"'/g){print "[$&]\n"; last if ++$n >= 3}' 2>/dev/null)"
+      samples_out+="    $short_rel  $name:"$'\n'
+      while IFS= read -r m; do
+        [[ -n "$m" ]] && samples_out+="      $m"$'\n'
+      done <<<"$matches"
+    fi
   done
   printf '  %s\n' "$verdict"
 done
 
 echo
+if [[ -n "$samples_out" ]]; then
+  echo "Sample matches (up to 3 per fixture/pattern):"
+  printf '%s' "$samples_out"
+  echo
+fi
 echo "Thresholds: DISTINCT=3 categories, DENSITY=10 hits of a single high-confidence pattern."
 echo "Total: $total fixture(s), Failed (tripped deny): $fail"
 

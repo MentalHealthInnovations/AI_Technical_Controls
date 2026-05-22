@@ -37,13 +37,21 @@ pattern_regexes=(
   '[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}'
 
   # UK postcode — 1-2 letters, 1-2 digits (optional trailing letter), space, digit, 2 letters.
-  '\b[A-Z]{1,2}[0-9][A-Z0-9]?\s+[0-9][A-Z]{2}\b'
+  # Inter-segment whitespace constrained to [ \t]+ so the regex cannot span lines.
+  '\b[A-Z]{1,2}[0-9][A-Z0-9]?[ \t]+[0-9][A-Z]{2}\b'
 
   # UK NI number — strict character classes exclude D/F/I/Q/U/V first, O second.
-  '\b[A-CEGHJ-PR-TW-Z][A-CEGHJ-NPR-TW-Z]\s?[0-9]{2}\s?[0-9]{2}\s?[0-9]{2}\s?[A-D]\b'
+  # Inter-group whitespace constrained to [ \t]? so the regex cannot span lines.
+  '\b[A-CEGHJ-PR-TW-Z][A-CEGHJ-NPR-TW-Z][ \t]?[0-9]{2}[ \t]?[0-9]{2}[ \t]?[0-9]{2}[ \t]?[A-D]\b'
 
   # UK phone — +44 prefix or leading 0, allowing optional spaces between digits.
-  '(?:\+44|0)(?:\s?[0-9]){9,10}\b'
+  # Inter-digit whitespace constrained to [ \t]? (single space/tab, not arbitrary
+  # whitespace) so the regex cannot stretch across newlines. Negative lookbehind
+  # (?<![A-Za-z0-9]) requires a non-alphanumeric boundary before the prefix so
+  # the regex cannot start mid-token — without this, `0669719602` matches
+  # inside a hex hash like `2a6f0669719602` because there is no \b between two
+  # word characters (hex letter and digit both being word chars).
+  '(?<![A-Za-z0-9])(?:\+44|0)(?:[ \t]?[0-9]){9,10}\b'
 
   # IBAN — 2-letter country, 2 check digits, up to 30 alphanumerics.
   '\b[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}\b'
@@ -52,7 +60,8 @@ pattern_regexes=(
   '\b(?:0?[1-9]|[12][0-9]|3[01])[\/\-\.](?:0?[1-9]|1[0-2])[\/\-\.](?:19|20)[0-9]{2}\b'
 
   # 16-digit grouped number — credit-card shaped (4-4-4-4 with space/dash).
-  '\b(?:[0-9]{4}[\s\-]){3}[0-9]{4}\b'
+  # Inter-group separator constrained to [ \t\-] so a card cannot span lines.
+  '\b(?:[0-9]{4}[ \t\-]){3}[0-9]{4}\b'
 )
 pattern_confs=(
   "high"
