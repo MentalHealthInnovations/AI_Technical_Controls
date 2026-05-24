@@ -6,6 +6,12 @@ here="$(cd "$(dirname "$0")" && pwd)"
 repo_root="$(cd "$here/../.." && pwd)"
 runner="$here/run_hook_cases.sh"
 
+# Hooks resolve relative file_path values against $PWD. Case fixtures live
+# under $repo_root/ClaudeCode/tests/cases/fixtures/..., so the suite must run
+# with $repo_root as cwd regardless of where the runner was invoked from
+# (CI workflow without working-directory, local cd into tests/, etc.).
+cd "$repo_root"
+
 declare -a suites=(
   "pii-path-policy-check.sh|pii-path-policy.json"
   "pii-content-sniff.sh|pii-content-sniff.json"
