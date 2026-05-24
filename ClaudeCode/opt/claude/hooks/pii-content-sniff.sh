@@ -31,10 +31,15 @@ DISTINCT_TRIP=3
 DENSITY_TRIP=10
 MAX_BINARY_CHECK_BYTES=1024
 
+HOOK_LOG="$HOME/.claude/debug/pii-content-sniff.log"
+# Ensure the log directory exists before any redirect targets $HOOK_LOG.
+# Without this, on first run in any environment where ~/.claude/debug/ has
+# not been created yet, bash's `>> "$HOOK_LOG"` redirect fails and breaks
+# the surrounding pipeline — silently zeroing every pattern count.
+mkdir -p "$(dirname "$HOOK_LOG")" 2>/dev/null || true
 logtofile() {
   echo "[$(date)] [pii-content-sniff] [$(pwd)] $1" >> "$HOOK_LOG"
 }
-HOOK_LOG="$HOME/.claude/debug/pii-content-sniff.log"
 
 payload="$(cat)"
 file_path="$(printf '%s' "$payload" | jq -r '.tool_input.file_path // empty')"
@@ -105,7 +110,7 @@ for ((i=0; i<n; i++)); do
   name="${pattern_names[$i]}"
   regex="${pattern_regexes[$i]}"
   conf="${pattern_confs[$i]}"
-  count="$(printf '%s' "$sample" | awk -v r="$regex" 'BEGIN{c=0} {c+=gsub(r,"&")} END{print c+0}' 2>>"$HOOK_LOG")"
+  count="$(printf '%s' "$sample" | awk -v r="$regex" 'BEGIN{c=0} {c+=gsub(r,"&")} END{print c+0}' 2>/dev/null)"
   if [[ -z "$count" ]]; then
     count=0
   fi
