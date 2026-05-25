@@ -31,11 +31,6 @@
 #     and \. silently degrades to "any character". Character-class syntax
 #     bypasses this by needing no backslash at all.
 #
-# This was migrated from PCRE/perl to POSIX/awk to drop perl as a runtime
-# dependency — perl is not in busybox or Alpine base, and dropping it makes
-# every consumer of these patterns runnable on a minimal POSIX environment.
-# See commit message of the migration commit for the full reasoning.
-#
 # Confidence levels:
 #   high — robust enough to trip a single-pattern density threshold on its own
 #          (low false-positive risk on technical content).

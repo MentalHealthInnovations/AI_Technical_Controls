@@ -89,12 +89,6 @@ script_dir="$(cd "$(dirname "$0")" && pwd)"
 
 # Match each pattern via awk's gsub (POSIX ERE) and aggregate hits.
 #
-# Why awk, not perl: perl is not in the busybox/Alpine base, which means the
-# previous perl-based implementation forced a perl install in every minimal
-# environment. awk is POSIX-mandated and present in every base distribution
-# including Alpine (busybox awk). The regex set in pii-patterns.sh was
-# migrated to POSIX ERE at the same time — see that file for dialect notes.
-#
 # gsub(regex, replacement) returns the number of substitutions, which is what
 # we want as a count. Passing the regex via -v is safer than shell-substituting
 # into a quoted script body: no escape issues with $, ", or backslashes.
