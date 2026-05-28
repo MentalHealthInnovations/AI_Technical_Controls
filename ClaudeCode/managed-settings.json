@@ -206,7 +206,8 @@
         "code.claude.com",
         "www.twilio.com",
         "learn.jamf.com",
-        "community.jamf.com"
+        "community.jamf.com",
+        "docs.aws.amazon.com"
       ],
       "allowManagedDomainsOnly": true
     }
