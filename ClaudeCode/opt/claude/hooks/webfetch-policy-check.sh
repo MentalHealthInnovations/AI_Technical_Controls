@@ -48,6 +48,8 @@ allowed_entries=(
   "proxy.golang.org"
   "crates.io"
   "index.crates.io"
+  "opentofu.org/docs"
+  "developer.hashicorp.com/terraform"
   "registry-1.docker.io"
   "auth.docker.io"
   "production.cloudflare.docker.com"
