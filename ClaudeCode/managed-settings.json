@@ -187,7 +187,8 @@
         "giveusashout.org",
         "code.claude.com",
         "www.twilio.com",
-        "learn.jamf.com"
+        "learn.jamf.com",
+        "learn.microsoft.com"
       ],
       "allowManagedDomainsOnly": true
     }
