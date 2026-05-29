@@ -48,9 +48,14 @@ allowed_entries=(
   "proxy.golang.org"
   "crates.io"
   "index.crates.io"
+  "opentofu.org/docs"
+  "developer.hashicorp.com/terraform"
   "registry-1.docker.io"
   "auth.docker.io"
   "production.cloudflare.docker.com"
+  "hub.docker.com"
+  "public.ecr.aws"
+  "api.ecr-public.aws"
   "mentalhealthinnovations.org"
   "themix.org.uk"
   "giveusashout.org"
@@ -58,6 +63,8 @@ allowed_entries=(
   "www.twilio.com"
   "learn.jamf.com"
   "learn.microsoft.com"
+  "community.jamf.com"
+  "docs.aws.amazon.com"
 )
 
 path="$(printf '%s' "$url" | sed -E 's|^[^:]+://[^/]*(/.*)$|\1|')"

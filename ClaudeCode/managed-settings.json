@@ -39,6 +39,7 @@
       "Read(~/.docker/config.json)",
       "Read(~/.kube/config)",
       "Read(~/.terraform.d/**)",
+      "Read(~/.terraformrc)",
       "Read(~/.vault-token)",
       "Read(~/.config/gh/hosts.yml)",
       "Read(~/.pypirc)",
@@ -91,6 +92,10 @@
       "Edit(./.git/ORIG_HEAD)",
       "Edit(./.git/packed-refs)",
       "Edit(./.husky/**)",
+      "Edit(./.pre-commit-config.yaml)",
+      "Edit(./**/.pre-commit-config.yaml)",
+      "Write(./.pre-commit-config.yaml)",
+      "Write(./**/.pre-commit-config.yaml)",
       "Edit(/Library/Application Support/ClaudeCode)",
 
       "WebSearch(*)"
@@ -123,7 +128,13 @@
         "./.git/MERGE_MSG",
         "./.git/MERGE_HEAD",
         "./.git/index",
-        "./.git/FETCH_HEAD"
+        "./.git/index.lock",
+        "./.git/HEAD",
+        "./.git/HEAD.lock",
+        "./.git/ORIG_HEAD",
+        "./.git/FETCH_HEAD",
+        "./.git/packed-refs",
+        "./.git/packed-refs.lock"
       ],
       "denyRead": [
         "~/.ssh",
@@ -136,6 +147,7 @@
         "~/.docker",
         "~/.kube",
         "~/.terraform.d",
+        "~/.terraformrc",
         "~/.vault-token",
         "~/Library/Keychains",
         "~/.config/gh",
@@ -157,6 +169,7 @@
         "~/.docker",
         "~/.kube",
         "~/.terraform.d",
+        "~/.terraformrc",
         "~/.vault-token",
         "~/Library/Keychains"
       ],
@@ -179,16 +192,23 @@
         "proxy.golang.org",
         "crates.io",
         "index.crates.io",
+        "opentofu.org",
+        "developer.hashicorp.com",
         "registry-1.docker.io",
         "auth.docker.io",
         "production.cloudflare.docker.com",
+        "hub.docker.com",
+        "public.ecr.aws",
+        "api.ecr-public.aws",
         "mentalhealthinnovations.org",
         "themix.org.uk",
         "giveusashout.org",
         "code.claude.com",
         "www.twilio.com",
         "learn.jamf.com",
-        "learn.microsoft.com"
+        "learn.microsoft.com",
+        "community.jamf.com",
+        "docs.aws.amazon.com"
       ],
       "allowManagedDomainsOnly": true
     }
