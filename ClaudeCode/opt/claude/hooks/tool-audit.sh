@@ -30,20 +30,25 @@ tool="$(printf '%s' "$payload" | jq -r '.tool_name // ""')"
 
 case "$tool" in
   Edit)
-    file_path="$(printf '%s' "$payload" | jq -r '.tool_input.file_path // ""')"
-    old_len="$(printf '%s' "$payload" | jq -r '.tool_input.old_string // "" | length')"
-    new_len="$(printf '%s' "$payload" | jq -r '.tool_input.new_string // "" | length')"
-    replace_all="$(printf '%s' "$payload" | jq -r '.tool_input.replace_all // false')"
+    # One jq pass: file_path is tab-safe (a path), the rest are int/bool.
+    IFS=$'\t' read -r file_path old_len new_len replace_all < <(
+      printf '%s' "$payload" | jq -r '
+        [ .tool_input.file_path // "",
+          (.tool_input.old_string // "" | length),
+          (.tool_input.new_string // "" | length),
+          (.tool_input.replace_all // false) ] | @tsv')
     audit_emit "$payload" observe \
       file_path        "$file_path" \
       old_len:json     "${old_len:-0}" \
       new_len:json     "${new_len:-0}" \
-      replace_all:json "$replace_all"
+      replace_all:json "${replace_all:-false}"
     ;;
 
   Write)
-    file_path="$(printf '%s' "$payload" | jq -r '.tool_input.file_path // ""')"
-    content_len="$(printf '%s' "$payload" | jq -r '.tool_input.content // "" | length')"
+    IFS=$'\t' read -r file_path content_len < <(
+      printf '%s' "$payload" | jq -r '
+        [ .tool_input.file_path // "",
+          (.tool_input.content // "" | length) ] | @tsv')
     audit_emit "$payload" observe \
       file_path        "$file_path" \
       content_len:json "${content_len:-0}"
@@ -70,9 +75,11 @@ case "$tool" in
     ;;
 
   Read)
-    file_path="$(printf '%s' "$payload" | jq -r '.tool_input.file_path // ""')"
-    offset="$(printf '%s' "$payload" | jq -r '.tool_input.offset // 0')"
-    limit="$(printf '%s' "$payload" | jq -r '.tool_input.limit // 0')"
+    IFS=$'\t' read -r file_path offset limit < <(
+      printf '%s' "$payload" | jq -r '
+        [ .tool_input.file_path // "",
+          (.tool_input.offset // 0),
+          (.tool_input.limit // 0) ] | @tsv')
     audit_emit "$payload" observe \
       file_path    "$file_path" \
       offset:json  "${offset:-0}" \

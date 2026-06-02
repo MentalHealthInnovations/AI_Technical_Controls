@@ -35,13 +35,14 @@ audit_emit() {
   local decision="$2"
   shift 2 || true
 
-  # Best-effort field extraction. jq returns "null" for missing keys; we
-  # convert those to empty strings so the record is consistent.
+  # Best-effort field extraction in a single jq pass. Missing keys become
+  # empty strings (// "") so the record is consistent. These four values are
+  # all single-line strings, so @tsv + IFS read is safe (no embedded tabs).
   local session_id transcript_path payload_cwd tool_name
-  session_id="$(printf '%s' "$payload" | jq -r '.session_id // ""' 2>/dev/null || true)"
-  transcript_path="$(printf '%s' "$payload" | jq -r '.transcript_path // ""' 2>/dev/null || true)"
-  payload_cwd="$(printf '%s' "$payload" | jq -r '.cwd // ""' 2>/dev/null || true)"
-  tool_name="$(printf '%s' "$payload" | jq -r '.tool_name // ""' 2>/dev/null || true)"
+  IFS=$'\t' read -r session_id transcript_path payload_cwd tool_name < <(
+    printf '%s' "$payload" | jq -r '
+      [ .session_id // "", .transcript_path // "", .cwd // "", .tool_name // "" ]
+      | @tsv' 2>/dev/null || true)
 
   local ts user proc_cwd host
   ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
@@ -52,17 +53,11 @@ audit_emit() {
   # invocation; cheap call.
   host="$(hostname -s 2>/dev/null || echo unknown)"
 
-  # Build the record. Common fields first, then merge the caller's extras.
-  # Caller passes extras as jq variable bindings (--arg / --argjson) followed
-  # by a final --argjson-built object would be awkward, so we keep it simple:
-  # callers pass `key value` pairs as additional positional args and we
-  # convert them to --arg bindings here. Numeric/boolean extras can use the
-  # `key:json` form (e.g. `len:42`) which we route to --argjson.
+  # Extras are passed as positional `key value` pairs; a key ending in ":json"
+  # is bound with --argjson (raw number/bool/array) instead of --arg (string).
   #
-  # schema_version: bumped when the envelope shape changes in a
-  # backwards-incompatible way (field renamed, semantic of a field altered).
-  # Adding a new optional field does NOT bump the version. Downstream
-  # ingestion can route records to different tables by this field.
+  # schema_version: bumped only on backwards-incompatible envelope changes
+  # (field renamed or semantics altered); adding an optional field does not.
   local jq_args=(
     --argjson schema_version 1
     --arg ts          "$ts"
