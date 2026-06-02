@@ -208,7 +208,8 @@
         "learn.jamf.com",
         "learn.microsoft.com",
         "community.jamf.com",
-        "docs.aws.amazon.com"
+        "docs.aws.amazon.com",
+        "developer.salesforce.com"
       ],
       "allowManagedDomainsOnly": true
     }
