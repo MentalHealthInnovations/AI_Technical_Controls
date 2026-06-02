@@ -19,6 +19,7 @@ A layered configuration system that makes Claude Code safer to use at scale. The
 | `ClaudeCode/opt/claude/hooks/lib/redact.sh` | Shared secret-redaction patterns (output + prompt) |
 | `ClaudeCode/pull_claude_governance.sh` | Pulls and deploys policy files; self-updates each run |
 | `ClaudeCode/InstallClaudeGovernance.sh` | One-time macOS bootstrap for `pull_claude_governance.sh` |
+| `aws/audit-logging/README.md` | Phase 0 manual AWS setup for the audit-log S3 bucket + IAM (IaC later) |
 | `.claude/skills/test-guardrails/SKILL.md` | `/test-guardrails` verification suite |
 
 ## Installation
@@ -164,7 +165,7 @@ Then open Claude Code in this repo and run `/test-guardrails` to confirm all con
 
 On suspected bypass:
 
-1. Review `~/.claude/debug/*.log` on the affected machine.
+1. Review `~/.claude/debug/*.jsonl` on the affected machine.
 2. Confirm deployed version matches `main`: `cat /Library/Application\ Support/ClaudeCode/VERSION`.
 3. Verify installed hooks match the repo at that SHA via `shasum`.
 4. If tampering is evident, follow MHI's standard incident response.

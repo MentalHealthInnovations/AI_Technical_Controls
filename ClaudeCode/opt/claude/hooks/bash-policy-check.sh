@@ -116,9 +116,7 @@ fi
 # consulted. Block the dangerous subcommands ahead of the allowlist so a
 # future broadening of "^pre-commit\b" can't launder them.
 if printf '%s' "$cmd" | grep -Eqi '^pre-commit\s+(try-repo|autoupdate|install-hooks|install|migrate-config|init-templatedir)\b'; then
-  logtofile "DENY pre-commit subcommand: $cmd"
-  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"pre-commit try-repo/autoupdate/install-hooks blocked by policy"}}'
-  exit 0
+  emit_deny "pre_commit_subcommand" "pre-commit try-repo/autoupdate/install-hooks blocked by policy"
 fi
 
 # terraform mutating/credential subcommands. Block ahead of the allowlist so a
@@ -127,41 +125,29 @@ fi
 # `-backend=false` form used by the terraform_validate pre-commit hook is
 # explicitly allowed in the allowlist below.
 if printf '%s' "$cmd" | grep -Eqi '^terraform\s+(apply|destroy|import|taint|untaint|state|login|logout|console|workspace\s+(delete|new))\b'; then
-  logtofile "DENY terraform subcommand: $cmd"
-  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"terraform apply/destroy/import/state/login/console blocked by policy"}}'
-  exit 0
+  emit_deny "terraform_subcommand" "terraform apply/destroy/import/state/login/console blocked by policy"
 fi
 if printf '%s' "$cmd" | grep -Eqi '^terraform\s+init\b' && ! printf '%s' "$cmd" | grep -Eqi '\-backend=false\b'; then
-  logtofile "DENY terraform init without -backend=false: $cmd"
-  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"terraform init requires -backend=false under policy"}}'
-  exit 0
+  emit_deny "terraform_init_backend" "terraform init requires -backend=false under policy"
 fi
 
 # terragrunt is a terraform wrapper with the same mutating surface plus run-all
 # (executes against every module) and hooks (arbitrary shell from terragrunt.hcl).
 if printf '%s' "$cmd" | grep -Eqi '^terragrunt\s+(apply|destroy|import|taint|untaint|state|login|console|run-all|aws-provider-patch|workspace\s+(delete|new))\b'; then
-  logtofile "DENY terragrunt subcommand: $cmd"
-  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"terragrunt apply/destroy/import/state/run-all blocked by policy"}}'
-  exit 0
+  emit_deny "terragrunt_subcommand" "terragrunt apply/destroy/import/state/run-all blocked by policy"
 fi
 if printf '%s' "$cmd" | grep -Eqi '^terragrunt\s+init\b' && ! printf '%s' "$cmd" | grep -Eqi '\-backend=false\b'; then
-  logtofile "DENY terragrunt init without -backend=false: $cmd"
-  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"terragrunt init requires -backend=false under policy"}}'
-  exit 0
+  emit_deny "terragrunt_init_backend" "terragrunt init requires -backend=false under policy"
 fi
 
 # tflint --init downloads plugins from GitHub at runtime; tfsec --update refreshes
 # its rule database from the network. Both are setup-time operations that the
 # pre-commit hooks do not need at runtime — block them ahead of the allowlist.
 if printf '%s' "$cmd" | grep -Eqi '^tflint\b.*\s--init\b'; then
-  logtofile "DENY tflint --init: $cmd"
-  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"tflint --init blocked by policy"}}'
-  exit 0
+  emit_deny "tflint_init" "tflint --init blocked by policy"
 fi
 if printf '%s' "$cmd" | grep -Eqi '^tfsec\b.*\s--update\b'; then
-  logtofile "DENY tfsec --update: $cmd"
-  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"tfsec --update blocked by policy"}}'
-  exit 0
+  emit_deny "tfsec_update" "tfsec --update blocked by policy"
 fi
 
 # Array of allowed command patterns (regex format)
