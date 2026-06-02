@@ -62,6 +62,7 @@ allowed_entries=(
   "code.claude.com/docs"
   "www.twilio.com"
   "learn.jamf.com"
+  "learn.microsoft.com"
   "community.jamf.com"
   "docs.aws.amazon.com"
 )
