@@ -49,9 +49,7 @@ case "$tool" in
       printf '%s' "$payload" | jq -r '
         [ .tool_input.file_path // "",
           (.tool_input.content // "" | length) ] | @tsv')
-    audit_emit "$payload" observe \
-      file_path        "$file_path" \
-      content_len:json "${content_len:-0}"
+    audit_emit "$payload" observe file_path "$file_path" content_len:json "${content_len:-0}"
     ;;
 
   Task|Agent)

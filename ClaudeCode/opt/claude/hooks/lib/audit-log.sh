@@ -88,17 +88,21 @@ audit_emit() {
   }'
 
   # Extra fields: pairs of (name, value). A name ending in ":json" is
-  # interpreted as raw JSON (numbers, booleans, arrays).
+  # interpreted as raw JSON (numbers, booleans, arrays); everything else is a
+  # string. A ":json" value that is not valid JSON would make the whole
+  # `jq -cn` below fail, silently dropping the entire record — so guard it:
+  # malformed JSON degrades to a string binding rather than losing the line.
   while [[ $# -ge 2 ]]; do
     local k="$1" v="$2"
     shift 2
-    if [[ "$k" == *:json ]]; then
+    if [[ "$k" == *:json ]] && printf '%s' "$v" | jq -e . >/dev/null 2>&1; then
       local bare="${k%:json}"
       jq_args+=(--argjson "$bare" "$v")
       jq_obj+=" | . + {\"$bare\": \$$bare}"
     else
-      jq_args+=(--arg "$k" "$v")
-      jq_obj+=" | . + {\"$k\": \$$k}"
+      local bare="${k%:json}"
+      jq_args+=(--arg "$bare" "$v")
+      jq_obj+=" | . + {\"$bare\": \$$bare}"
     fi
   done
 

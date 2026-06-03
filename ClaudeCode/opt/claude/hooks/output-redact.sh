@@ -55,9 +55,7 @@ raw_output="$(printf '%s' "$payload" | jq -r '
 output_len="${#raw_output}"
 
 if [[ -z "$raw_output" ]]; then
-  audit_emit "$payload" observe \
-    matched:json '[]' \
-    output_len:json "$output_len"
+  audit_emit "$payload" observe matched:json '[]' output_len:json "$output_len"
   exit 0
 fi
 
@@ -67,15 +65,11 @@ redacted="$(redact_text "$raw_output")"
 matched_json="$(redact_matched_json)"
 
 if [[ "${#REDACT_MATCHED[@]}" -eq 0 ]]; then
-  audit_emit "$payload" observe \
-    matched:json    "$matched_json" \
-    output_len:json "$output_len"
+  audit_emit "$payload" observe matched:json "$matched_json" output_len:json "$output_len"
   exit 0
 fi
 
-audit_emit "$payload" redact \
-  matched:json    "$matched_json" \
-  output_len:json "$output_len"
+audit_emit "$payload" redact matched:json "$matched_json" output_len:json "$output_len"
 
 # Block the tool output from entering Claude's context.
 # decision:block prevents Claude from seeing the raw output; reason tells Claude

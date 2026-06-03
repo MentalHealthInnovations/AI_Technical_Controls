@@ -25,9 +25,7 @@ fi
 emit_deny() {
   local reason_short="$1"   # short label for the audit log (e.g. "sudo_su")
   local reason_user="$2"    # user-facing reason returned to Claude
-  audit_emit "$payload" deny \
-    cmd    "$cmd" \
-    reason "$reason_short"
+  audit_emit "$payload" deny cmd "$cmd" reason "$reason_short"
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$reason_user"
   exit 0
 }
@@ -299,7 +297,5 @@ while IFS= read -r segment; do
   fi
 done < <(printf '%s' "$stripped_cmd" | sed 's/&&/\n/g; s/||/\n/g; s/;/\n/g; s/|/\n/g')
 
-audit_emit "$payload" allow \
-  cmd        "$cmd" \
-  segs:json  "${separators:-0}"
+audit_emit "$payload" allow cmd "$cmd" segs:json "${separators:-0}"
 echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}'
