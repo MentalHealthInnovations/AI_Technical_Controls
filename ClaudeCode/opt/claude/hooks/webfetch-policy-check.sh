@@ -66,6 +66,7 @@ allowed_entries=(
   "community.jamf.com"
   "docs.aws.amazon.com"
   "developer.salesforce.com"
+  "docs.github.com"
 )
 
 path="$(printf '%s' "$url" | sed -E 's|^[^:]+://[^/]*(/.*)$|\1|')"
