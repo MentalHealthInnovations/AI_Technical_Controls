@@ -53,6 +53,13 @@ Each individual assertion needs its own grounding. Verifying the happy path ("wh
 
 This is the same standard already applied to tests elsewhere in this environment ("do not claim a pass that wasn't verified"): an unverified cause is exactly as harmful as an unverified test pass, and is forbidden on the same terms.
 
+## Pull request descriptions
+
+- **A PR description describes the PR's full diff against its base branch** (usually `main`) — the net change a reviewer will merge. It is not a changelog of the commit journey, not a summary of "what changed since the last description update," and not a subset of the work. When updating an existing PR body, re-derive it from the complete `git diff <base>...HEAD`, not from the latest commits alone.
+- Before writing or updating a body, run `git diff --stat <base>...HEAD` (and read the diff) to ground the description in what is actually in the PR. Do not assemble the description from memory of the session.
+- Follow the repo's PR template if one exists (`.github/pull_request_template.md`); populate every required section against the full diff.
+- Pass the body without command substitution or heredocs (same constraint as commits below): write the body to a file with the Write tool, then `gh pr edit --body-file <path>` / `gh pr create --body-file <path>`. Do **not** use `--body "$(cat …)"` or `--body "$(<<'EOF' …)"` — the bash-policy hook blocks those patterns.
+
 ## Git commits
 
 - Use `git commit -m "type(scope): description"` with a plain double-quoted string passed directly on the command line.
