@@ -96,7 +96,7 @@
       "Edit(./**/.pre-commit-config.yaml)",
       "Write(./.pre-commit-config.yaml)",
       "Write(./**/.pre-commit-config.yaml)",
-      "Edit(/Library/Application Support/ClaudeCode)",
+      "Edit(/Library/Application Support/ClaudeCode/**)",
 
       "Write(./.env)",
       "Write(./.env.*)",
@@ -122,26 +122,7 @@
       "Write(./.git/ORIG_HEAD)",
       "Write(./.git/packed-refs)",
       "Write(./.husky/**)",
-      "Write(/Library/Application Support/ClaudeCode)",
-
-      "Write(~/.ssh/**)",
-      "Write(~/.aws/**)",
-      "Write(~/.azure/**)",
-      "Write(~/.config/gcloud/**)",
-      "Write(~/.gnupg/**)",
-      "Write(~/.npmrc)",
-      "Write(~/.netrc)",
-      "Write(~/.docker/config.json)",
-      "Write(~/.kube/config)",
-      "Write(~/.terraform.d/**)",
-      "Write(~/.vault-token)",
-      "Write(~/.config/gh/hosts.yml)",
-      "Write(~/.pypirc)",
-      "Write(~/.gem/credentials)",
-      "Write(~/.cargo/credentials)",
-      "Write(~/.config/op/**)",
-      "Write(/etc/**)",
-      "Write(/usr/local/bin/**)",
+      "Write(/Library/Application Support/ClaudeCode/**)",
 
       "WebSearch(*)"
     ]
