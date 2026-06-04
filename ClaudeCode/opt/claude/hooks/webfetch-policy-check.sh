@@ -31,8 +31,15 @@ hostname="$(printf '%s' "$url" | sed -E 's|^[^:]+://([^/:?#@]*@)?([^/:?#]*).*|\2
 # Allowlist is the bare-hostname list from managed-settings.json, read at runtime
 # so the OS sandbox layer (network.allowedDomains) and this hook stay in lockstep
 # without a manual sync step. No wildcard subdomain matching — subdomains must
-# be listed explicitly. No path scoping — if a host is listed, any path on that
-# host is allowed.
+# be listed explicitly.
+#
+# Path scoping (sandbox.network._webfetchPathScopes) is an OPTIONAL second layer
+# read only by this hook: a host listed there is restricted, for WebFetch only,
+# to URLs whose path is under the given prefix. The OS sandbox cannot express a
+# path (its allowedDomains entries are bare hosts; a "/" makes an entry invalid)
+# so the sandbox always allows the whole host. This key therefore constrains the
+# WebFetch tool only — it does NOT restrict Bash network egress, which can still
+# reach any path on an allowlisted host. Hosts not listed here get any path.
 #
 # Depends on `jq` (also required by bash-policy-check.sh and output-redact.sh).
 managed_settings="/Library/Application Support/ClaudeCode/managed-settings.json"
@@ -50,6 +57,29 @@ fi
 # any line exactly. Fails closed: if jq errors or no domains are configured,
 # nothing matches and the deny below fires.
 if printf '%s\n' "$hostname" | grep -Fxq -f <(jq -r '.sandbox.network.allowedDomains[]? // empty' "$managed_settings" 2>/dev/null); then
+  # Host is allowed. If it carries a path scope, the URL path must be under it.
+  # An empty scope (host absent from _webfetchPathScopes, or the key missing)
+  # leaves the host unrestricted. jq failures yield an empty scope too — that
+  # fails open on the path check only, never on the host check above.
+  scope="$(jq -r --arg h "$hostname" '.sandbox.network._webfetchPathScopes[$h]? // empty' "$managed_settings" 2>/dev/null)"
+  if [[ -n "$scope" ]]; then
+    # Extract the path (strip scheme+host, then query/fragment); default to "/".
+    req_path="$(printf '%s' "$url" | sed -E 's|^[^:]+://[^/?#]*([/][^?#]*)?.*|\1|')"
+    req_path="${req_path:-/}"
+    case "$req_path" in
+      "$scope"|"$scope"/*) ;;
+      *)
+        audit_emit "$payload" deny \
+          url      "$url" \
+          hostname "$hostname" \
+          reason   "path_not_allowed" \
+          scope    "$scope" \
+          attempted_path "$req_path"
+        echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"WebFetch path not under the allowed prefix for this host"}}'
+        exit 0
+        ;;
+    esac
+  fi
   audit_emit "$payload" allow \
     url      "$url" \
     hostname "$hostname"

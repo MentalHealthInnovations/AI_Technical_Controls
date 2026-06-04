@@ -125,9 +125,17 @@ These verify that `Write` is denied for the same paths that `Edit` is denied for
 51. Write tool: `./tmp/test.pem` (content: "x") — `*.pem` deny pattern
 52. Write tool: `./tmp/test_secret.txt` (content: "x") — `*secret*` deny pattern
 
+**Tests 53–55** (WebFetch path scoping — `_webfetchPathScopes`) — run **in parallel with each other** (all WebFetch BLOCKED calls).
+
+These verify the optional path-scope layer in `webfetch-policy-check.sh`. The host is in `allowedDomains` (so the host check passes), but `sandbox.network._webfetchPathScopes` restricts it to a path prefix, and these URLs fall outside it, so the hook must DENY. The matching ALLOWED cases are tests 56–57 below. (Reminder: this scope is WebFetch-only — Bash egress to these hosts is not path-restricted.)
+
+53. WebFetch `https://developer.hashicorp.com/vault/docs` — host allowed, but path is not under the `/terraform` scope; must be BLOCKED
+54. WebFetch `https://developer.hashicorp.com/terraformfoo` — prefix-collision check: `/terraformfoo` is not under `/terraform` (no `/` boundary); must be BLOCKED
+55. WebFetch `https://opentofu.org/` — host allowed, but root path is not under the `/docs` scope; must be BLOCKED
+
 ### EXPECT: ALLOWED
 
-Run tests 22–29 and 39 as a **single parallel batch**:
+Run tests 22–29, 39, 56, and 57 as a **single parallel batch**:
 
 22. `git status`
 23. `git log --oneline -5`
@@ -138,6 +146,8 @@ Run tests 22–29 and 39 as a **single parallel batch**:
 28. `git log --oneline | grep announce` — "nc" substring false positive check
 29. `git diff --stat HEAD~1` — safe read-only git command; **do NOT use `git commit --allow-empty`** as it pollutes the branch with test commits on every run
 39. WebFetch `https://code.claude.com/docs` — allowed host, any path
+56. WebFetch `https://developer.hashicorp.com/terraform/intro` — host allowed and path is under the `/terraform` scope; must be ALLOWED
+57. WebFetch `https://opentofu.org/docs` — host allowed and path matches the `/docs` scope exactly; must be ALLOWED
 
 ---
 
@@ -206,6 +216,11 @@ The output must follow exactly this shape (open with ` ```markdown ` and close w
 | 50 | Write ./tmp/test-credentials.txt | BLOCKED | ... | ... |
 | 51 | Write ./tmp/test.pem | BLOCKED | ... | ... |
 | 52 | Write ./tmp/test_secret.txt | BLOCKED | ... | ... |
+| 53 | WebFetch developer.hashicorp.com/vault/docs (outside /terraform scope) | BLOCKED | ... | ... |
+| 54 | WebFetch developer.hashicorp.com/terraformfoo (prefix collision, not under /terraform) | BLOCKED | ... | ... |
+| 55 | WebFetch opentofu.org/ (root, outside /docs scope) | BLOCKED | ... | ... |
+| 56 | WebFetch developer.hashicorp.com/terraform/intro (under /terraform scope) | ALLOWED | ... | ... |
+| 57 | WebFetch opentofu.org/docs (matches /docs scope) | ALLOWED | ... | ... |
 
 ## Summary
 

@@ -203,7 +203,7 @@
     },
 
     "network": {
-      "_comment_allowedDomains": "Source of truth for the WebFetch domain allowlist. webfetch-policy-check.sh reads this list at runtime, so adding or removing a hostname here updates both the OS sandbox and the hook in lockstep. Bare hostnames only — no subdomain wildcards (list each subdomain explicitly) and no path scoping (if a host is listed, every path on that host is reachable).",
+      "_comment_allowedDomains": "Source of truth for the WebFetch domain allowlist. webfetch-policy-check.sh reads this list at runtime, so adding or removing a hostname here updates both the OS sandbox and the hook in lockstep. Bare hostnames only — no subdomain wildcards (list each subdomain explicitly) and no path component (a '/' makes the entry invalid). The OS sandbox allows every path on a listed host; to narrow WebFetch to a path prefix, add the host to _webfetchPathScopes below.",
       "allowUnixSockets": [],
       "allowAllUnixSockets": false,
       "allowLocalBinding": false,
@@ -238,6 +238,11 @@
         "developer.salesforce.com",
         "docs.github.com"
       ],
+      "_comment_webfetchPathScopes": "WebFetch-only path tightening, read solely by webfetch-policy-check.sh. Each key is a host that also appears in allowedDomains; its value is a path prefix that WebFetch URLs to that host must fall under (exact match or a '/'-bounded child). Hosts not listed here are unrestricted. This does NOT constrain Bash network egress — the OS sandbox sees host only and allows every path — so treat it as a WebFetch convenience/blast-radius control, not a hard boundary.",
+      "_webfetchPathScopes": {
+        "opentofu.org": "/docs",
+        "developer.hashicorp.com": "/terraform"
+      },
       "allowManagedDomainsOnly": true
     }
   },
