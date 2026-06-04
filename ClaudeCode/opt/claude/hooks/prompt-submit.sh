@@ -30,10 +30,17 @@ fi
 
 prompt_len="${#prompt}"
 
-# shellcheck disable=SC2034  # read inside lib/redact.sh via redact_text/redact_matched_json
-REDACT_MATCHED=()
-redacted_prompt="$(redact_text "$prompt")"
-matched_json="$(redact_matched_json)"
+# redact_text returns matched-pattern names on stdout line 1 and the redacted
+# body on the rest (see lib/redact.sh). Split on the first newline. Here the
+# redacted body is what we record as the prompt; the names populate the audit
+# `redactions` field. (This hook only logs — it does not block — so the prior
+# bug here was an inaccurate audit field, not a leak; the prompt body was always
+# correctly redacted via stdout.)
+result="$(redact_text "$prompt")"
+matched_names="${result%%$'\n'*}"
+redacted_prompt="${result#*$'\n'}"
+# shellcheck disable=SC2086  # word-splitting matched_names into separate args is intended
+matched_json="$(redact_matched_json $matched_names)"
 
 # Use a "submit" decision rather than allow/deny — the prompt is not subject
 # to a policy decision here, and using a distinct verb makes filtering the

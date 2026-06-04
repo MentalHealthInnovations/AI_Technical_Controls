@@ -59,12 +59,18 @@ if [[ -z "$raw_output" ]]; then
   exit 0
 fi
 
-# shellcheck disable=SC2034  # read inside lib/redact.sh via redact_text/redact_matched_json
-REDACT_MATCHED=()
-redacted="$(redact_text "$raw_output")"
-matched_json="$(redact_matched_json)"
+# redact_text returns the matched-pattern names on stdout line 1 (authoritative;
+# survives this command substitution) and the redacted body on the rest. We split
+# on the first newline: everything before it is the sentinel, everything after is
+# the body. The sentinel — not a now-empty REDACT_MATCHED global — drives the
+# block decision, so a secret cannot slip through on a lost side-channel.
+result="$(redact_text "$raw_output")"
+matched_names="${result%%$'\n'*}"
+redacted="${result#*$'\n'}"
+# shellcheck disable=SC2086  # word-splitting matched_names into separate args is intended
+matched_json="$(redact_matched_json $matched_names)"
 
-if [[ "${#REDACT_MATCHED[@]}" -eq 0 ]]; then
+if [[ -z "$matched_names" ]]; then
   audit_emit "$payload" observe matched:json "$matched_json" output_len:json "$output_len"
   exit 0
 fi

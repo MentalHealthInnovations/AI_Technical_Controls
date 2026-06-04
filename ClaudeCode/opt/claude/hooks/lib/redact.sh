@@ -5,15 +5,14 @@
 # Exports two functions:
 #
 #   redact_text <text>
-#     Echoes <text> to stdout with every matched secret replaced by [REDACTED].
-#     Side effect: appends matched pattern names to the global REDACT_MATCHED
-#     array (caller must declare it).
+#     Stdout line 1: space-separated names of matched patterns (empty if none).
+#     Stdout line 2+: <text> with every matched secret replaced by [REDACTED].
+#     The line-1 sentinel is the authoritative match signal because callers run
+#     this in $(...) (a subshell), where the REDACT_MATCHED global would be lost.
 #
-#   redact_matched_json
-#     Echoes a compact JSON array of the pattern names matched on the most
-#     recent redact_text call. Empty array on clean input.
-#
-# Callers reset REDACT_MATCHED=() before each scan.
+#   redact_matched_json [name...]
+#     Echoes a compact JSON array of the given pattern names (typically the
+#     word-split sentinel line from redact_text). Empty array with no args.
 #
 # Engine note: matching uses `sed -E` (POSIX ERE), not perl. The previous
 # implementation shelled out to `perl -pe "s/$regex/.../"`, which did not redact
@@ -68,12 +67,32 @@ __REDACT_PATTERNS=(
 # as a bash-level guard rather than inside the pattern.)
 __REDACT_PLACEHOLDER='(example|placeholder|your[-_]|xxx|changeme|dummy|fake|test|sample)'
 
-# redact_text: returns the input with all matches replaced by [REDACTED].
-# Appends pattern names to the caller's REDACT_MATCHED array on each hit.
+# redact_text: redacts secrets and reports which patterns matched.
+#
+# RETURN CONTRACT (important — read before changing callers):
+#   stdout line 1   : space-separated names of patterns that matched (empty if
+#                     none). This is the AUTHORITATIVE match signal.
+#   stdout line 2.. : the redacted body.
+#
+# Why a stdout sentinel rather than the REDACT_MATCHED global: callers invoke
+# this inside command substitution ($(...)), which runs in a subshell whose
+# variable changes "cannot affect the shell's execution environment" (man bash,
+# Command Execution Environment). So a global array populated here is LOST in
+# the parent. stdout, by contrast, is exactly what $() captures — so the match
+# signal must travel on stdout. REDACT_MATCHED is still populated for any direct
+# (non-subshell) caller and for redact_matched_json, but it is NOT reliable
+# across $(); the sentinel line is.
+#
+# Match detection counts [REDACTED] OCCURRENCES before vs after each pattern
+# (via awk gsub), NOT raw string inequality. Inequality fired spuriously because
+# $() strips trailing newlines, making benign multi-line text look "changed" and
+# latch onto the first pattern. Occurrence counting also avoids grep -c's
+# line-counting undercount when two secrets share a line.
 redact_text() {
   local input="$1"
   local current="$input"
   local i=0
+  local -a matched=()
   while [[ $i -lt ${#__REDACT_PATTERNS[@]} ]]; do
     local name="${__REDACT_PATTERNS[$i]}"
     local regex="${__REDACT_PATTERNS[$((i+1))]}"
@@ -95,19 +114,27 @@ redact_text() {
       current="$(printf '%s' "$current" | sed -E "s#${regex}#[REDACTED]#g")"
     fi
 
-    if [[ "$current" != "$before" ]]; then
-      REDACT_MATCHED+=("$name")
+    # A real match for this pattern iff the [REDACTED] occurrence count rose.
+    local before_n after_n
+    before_n="$(printf '%s' "$before"  | awk '{n+=gsub(/\[REDACTED\]/,"&")} END{print n+0}')"
+    after_n="$(printf '%s'  "$current" | awk '{n+=gsub(/\[REDACTED\]/,"&")} END{print n+0}')"
+    if [[ "${after_n:-0}" -gt "${before_n:-0}" ]]; then
+      matched+=("$name")
+      REDACT_MATCHED+=("$name")   # best-effort for direct (non-subshell) callers
     fi
     i=$((i + 2))
   done
-  printf '%s' "$current"
+  printf '%s\n' "${matched[*]:-}"   # sentinel line 1: matched names (authoritative)
+  printf '%s' "$current"            # line 2..: redacted body
 }
 
-# redact_matched_json: compact JSON array of last scan's pattern names.
+# redact_matched_json: compact JSON array of pattern names. Accepts the names as
+# arguments (the sentinel line, word-split by the caller) so it does not depend
+# on the subshell-fragile REDACT_MATCHED global. With no args, emits [].
 redact_matched_json() {
-  if [[ "${#REDACT_MATCHED[@]}" -eq 0 ]]; then
+  if [[ "$#" -eq 0 ]]; then
     printf '[]'
     return 0
   fi
-  printf '%s\n' "${REDACT_MATCHED[@]}" | jq -R . | jq -sc .
+  printf '%s\n' "$@" | jq -R . | jq -sc .
 }
