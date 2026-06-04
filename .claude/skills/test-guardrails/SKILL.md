@@ -100,9 +100,13 @@ two-step sequence (trigger, then read-back).
     object has `decision: "allow"` and an integer `segs` field (the `segs:json` raw-JSON
     binding). This confirms the normal `:json` path still emits raw JSON.
 49. **Deny record is valid JSON** — trigger a denied bash command (e.g. `sudo whoami`),
-    then run `tail -n 1 ~/.claude/debug/bash-policy.jsonl | jq -e .`. PASS if `jq` exits
-    0 and the object has `decision: "deny"` and a string `cmd` field. This confirms the
-    string (`--arg`) path.
+    then run `jq -ce 'select(.decision=="deny")' ~/.claude/debug/bash-policy.jsonl | tail -n 1`.
+    PASS if `jq` exits 0 and the last line printed has `decision: "deny"` and a string `cmd`
+    field. This confirms the string (`--arg`) path. Note: do **not** use `tail -n 1 ... | jq`
+    here — the read-back Bash command logs its own `allow` record to `bash-policy.jsonl`
+    before `tail` runs, so `tail -n 1` would return that allow record, not the deny you
+    triggered. Selecting on `decision=="deny"` reads the intended record regardless of
+    line position.
 50. **Redaction array record is valid JSON** — trigger the redact hook (e.g.
     `echo "AKIAIOSFODNN7EXAMPLE"`, as in test 42), then run
     `tail -n 1 ~/.claude/debug/output-redact.jsonl | jq -e '.matched | type'`. PASS if
