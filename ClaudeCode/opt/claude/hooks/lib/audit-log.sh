@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+# shellcheck shell=bash
 # Shared audit-log helper. Sourced by the policy hooks to emit a single JSON
 # Lines record per invocation to ~/.claude/debug/<hook>.jsonl.
 #
