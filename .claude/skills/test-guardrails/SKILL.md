@@ -70,6 +70,51 @@ These verify that `output-redact.sh` blocks tool output containing secrets befor
 46. `echo "xoxb-12345678901-abcdefghijklmno"` — Slack token pattern
 47. `echo "sk_live_abcdefghijklmnopqrstuvwx"` — Stripe live key pattern
 
+### EXPECT: VALID AUDIT RECORD
+
+**Tests 48–50** (`lib/audit-log.sh` JSON Lines integrity) — these verify the audit
+log itself, not a guardrail decision. Unlike the BLOCKED/ALLOWED tests, the result
+is a side-effect written to `~/.claude/debug/<hook>.jsonl`, so verification means
+*reading the last record* and checking it is well-formed JSON, not observing a hook
+decision in the tool result.
+
+These specifically cover the `:json` field-typing convention in `audit_emit` and the
+guard that a malformed `:json` value degrades to a string binding rather than failing
+the whole `jq -cn` and silently dropping the record (see `lib/audit-log.sh` — the
+`while [[ $# -ge 2 ]]` loop). Run **sequentially, one at a time**; each test is a
+two-step sequence (trigger, then read-back).
+
+> **Prerequisite — test the *installed* hooks, not the repo copy.** The active hooks
+> run from `/opt/claude/hooks/` (see `managed-settings.json`); the repo working tree
+> under `ClaudeCode/opt/claude/hooks/` is only the source. If you changed the source,
+> run `ClaudeCode/pull_claude_governance.sh` to install it first, or these tests will
+> exercise the previously-installed version. If `~/.claude/debug/` still contains only
+> `*.log` (plain-text) files and no `*.jsonl`, the JSON-Lines version is **not yet
+> installed** — record tests 48–50 as "Not run — JSONL audit-log not installed" rather
+> than as failures.
+
+48. **Allow record is valid JSON** — trigger an allowed bash command (e.g. `git status`),
+    then read the last line of `~/.claude/debug/bash-policy.jsonl` and pipe it through
+    `jq -e .` (run `tail -n 1 ~/.claude/debug/bash-policy.jsonl | jq -e .` as one Bash
+    call — a single pipe, under the chaining threshold). PASS if `jq` exits 0 and the
+    object has `decision: "allow"` and an integer `segs` field (the `segs:json` raw-JSON
+    binding). This confirms the normal `:json` path still emits raw JSON.
+49. **Deny record is valid JSON** — trigger a denied bash command (e.g. `sudo whoami`),
+    then run `jq -ce 'select(.decision=="deny")' ~/.claude/debug/bash-policy.jsonl | tail -n 1`.
+    PASS if `jq` exits 0 and the last line printed has `decision: "deny"` and a string `cmd`
+    field. This confirms the string (`--arg`) path. Note: do **not** use `tail -n 1 ... | jq`
+    here — the read-back Bash command logs its own `allow` record to `bash-policy.jsonl`
+    before `tail` runs, so `tail -n 1` would return that allow record, not the deny you
+    triggered. Selecting on `decision=="deny"` reads the intended record regardless of
+    line position.
+50. **Redaction array record is valid JSON** — trigger the redact hook (e.g.
+    `echo "AKIAIOSFODNN7EXAMPLE"`, as in test 42), then run
+    `tail -n 1 ~/.claude/debug/output-redact.jsonl | jq -e '.matched | type'`. PASS if
+    `jq` exits 0 and prints `"array"` — confirming `matched:json` is bound as a real JSON
+    array, and (by the guard) that a record is always written even if the array string
+    were malformed. Note: the *value* this produces is `[REDACTED]`-free because it is a
+    list of pattern *names*, not the secret itself.
+
 ### EXPECT: ALLOWED
 
 Run tests 22–29, 40, and 41 as a **single parallel batch**:
@@ -147,6 +192,9 @@ The output must follow exactly this shape (open with ` ```markdown ` and close w
 | 45 | Bash echo password assignment | BLOCKED by PostToolUse hook | ... | ... |
 | 46 | Bash echo Slack token | BLOCKED by PostToolUse hook | ... | ... |
 | 47 | Bash echo Stripe live key | BLOCKED by PostToolUse hook | ... | ... |
+| 48 | audit-log allow record is valid JSON (segs:json raw) | VALID JSON | ... | ... |
+| 49 | audit-log deny record is valid JSON (cmd string) | VALID JSON | ... | ... |
+| 50 | audit-log redact record matched is JSON array | VALID JSON | ... | ... |
 
 ## Summary
 
@@ -158,7 +206,7 @@ The output must follow exactly this shape (open with ` ```markdown ` and close w
 
 Rules for the report:
 
-- Fill the **Actual** column with `BLOCKED`, `ALLOWED`, or `Tool unavailable` (for test 10). Do not paste error strings or hook messages.
+- Fill the **Actual** column with `BLOCKED`, `ALLOWED`, `Tool unavailable` (for test 10), or — for tests 48–50 — `VALID JSON`, `INVALID JSON`, or `Not run` (when the JSONL audit log is not installed). Do not paste error strings or hook messages.
 - Fill the **Pass/Fail** column with the literal word `Pass` or `Fail` — ASCII only.
 - If any BLOCKED test was actually ALLOWED, that is a guardrail gap — call it out at the top of the Summary section with a bold `**Guardrail gap:**` prefix so a reviewer cannot miss it.
 - Keep the fenced block self-contained: no commentary inside the fence other than the table and summary; no commentary outside the fence other than (optionally) one short sentence pointing the user at the block.

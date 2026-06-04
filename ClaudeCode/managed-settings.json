@@ -235,6 +235,15 @@
             "command": "/opt/claude/hooks/webfetch-policy-check.sh"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|Task|SlashCommand|Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/claude/hooks/tool-audit.sh"
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -244,6 +253,46 @@
           {
             "type": "command",
             "command": "/opt/claude/hooks/output-redact.sh"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/claude/hooks/prompt-submit.sh"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/claude/hooks/session-audit.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/claude/hooks/session-audit.sh"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/claude/hooks/session-audit.sh"
           }
         ]
       }
