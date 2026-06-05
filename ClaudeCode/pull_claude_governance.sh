@@ -13,19 +13,19 @@ set -e
 
 claude_config_dir="/Library/Application Support/ClaudeCode/"
 claude_hooks_dir="/opt/claude/hooks/"
-ai_governance_repo_dir="/tmp/AI_Governance"
+ai_governance_repo_dir="/tmp/AI_Technical_Controls"
 script_dest="/usr/local/bin/pull_claude_governance.sh"
 
 echo "Creating directories..."
 mkdir -p "$claude_config_dir" "$claude_hooks_dir"
 
-echo "Cloning AI_Governance repository..."
+echo "Cloning AI_Technical_Controls repository..."
 rm -rf "$ai_governance_repo_dir"
 # Clone main. Integrity is enforced at the source: CODEOWNERS and branch protection
 # require two-person approval for every merge, so a tampered main implies the
 # security team itself was compromised — client-side tag pinning would not add
 # meaningful protection against that threat.
-git clone --quiet --depth 1 https://github.com/MentalHealthInnovations/AI_Governance "$ai_governance_repo_dir"
+git clone --quiet --depth 1 https://github.com/MentalHealthInnovations/AI_Technical_Controls "$ai_governance_repo_dir"
 
 # Self-update: replace this script with the latest version from the repo before copying
 # policy files. Uses cp (atomic inode replacement) so the running process is unaffected;

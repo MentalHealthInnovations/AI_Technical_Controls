@@ -4,7 +4,7 @@
 #
 # Run this script once as root (or with sudo) to:
 #   1. Install /usr/local/bin/pull_claude_governance.sh, which pulls the latest policies
-#      from the MentalHealthInnovations/AI_Governance GitHub repo.
+#      from the MentalHealthInnovations/AI_Technical_Controls GitHub repo.
 #   2. Run that script immediately to apply the current policies.
 #   3. Install /usr/local/bin/update_ai_governance, a setuid binary that allows any local
 #      user to trigger a policy update without root access by running: update_ai_governance
@@ -76,16 +76,16 @@ else
 fi
 
 script_dest="/usr/local/bin/pull_claude_governance.sh"
-ai_governance_repo_dir="/tmp/AI_Governance"
+ai_governance_repo_dir="/tmp/AI_Technical_Controls"
 
 echo "Starting to pull Claude governance files."
 
 # Bootstrap: clone the repo, copy pull_claude_governance.sh to /usr/local/bin/, then execute it.
 # After this first install, pull_claude_governance.sh self-updates on every subsequent run —
 # changes to it deploy automatically via the daily cron without requiring this script to be re-run.
-echo "Cloning AI_Governance repository..."
+echo "Cloning AI_Technical_Controls repository..."
 rm -rf "$ai_governance_repo_dir"
-git clone --quiet --depth 1 https://github.com/MentalHealthInnovations/AI_Governance "$ai_governance_repo_dir"
+git clone --quiet --depth 1 https://github.com/MentalHealthInnovations/AI_Technical_Controls "$ai_governance_repo_dir"
 
 echo "Installing pull script..."
 sudo cp "$ai_governance_repo_dir/ClaudeCode/pull_claude_governance.sh" "$script_dest"
