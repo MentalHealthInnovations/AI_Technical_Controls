@@ -59,12 +59,9 @@
 - [ ] Medium
 - [ ] High
 
-## Deployment impact
+## Rollback plan
 
 <!-- Merges to main are deployed to managed machines automatically by the daily pull_claude_governance.sh cron. -->
-
-### Rollback plan
-
 <!-- How to revert this change if it does not behave as intended in production. -->
 <!-- If the change cannot be safely auto-deployed, say so here and describe how it will be gated. -->
 
