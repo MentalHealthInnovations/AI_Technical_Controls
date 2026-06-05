@@ -17,9 +17,12 @@
 #
 #   - No \b word boundaries. Where a boundary is needed, alternate with
 #     (^|[^A-Za-z0-9]) at the start and ([^A-Za-z0-9]|$) at the end. The
-#     boundary character ends up inside the match — fine for counting via
-#     gsub(), but the match string in diagnostics will include one wrapping
-#     character on either side.
+#     boundary character ends up inside the match. Consumers therefore count
+#     with a match()/RSTART/RLENGTH loop that re-scans from one char before the
+#     match end, NOT with gsub() — gsub would consume the trailing boundary and
+#     undercount two adjacent items as one. See the counting loop in
+#     pii-content-sniff.sh / pii-staged-scan.sh. The match string in diagnostics
+#     still includes one wrapping character on either side.
 #   - No PCRE shortcuts: no \d (use [0-9]), no \s (use [ \t]), no lookaround.
 #   - No non-capturing groups (?:...). awk has no capture-group cost for the
 #     count use case, so regular groups (...) work fine.
@@ -76,8 +79,13 @@ pattern_regexes=(
   # character). Trailing ([^0-9]|$) replaces \b at the digit-string end.
   '(^|[^A-Za-z0-9])([+]44|0)([ \t]?[0-9]){9,10}([^0-9]|$)'
 
-  # IBAN — 2-letter country, 2 check digits, up to 30 alphanumerics.
-  '(^|[^A-Za-z0-9])[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}([^A-Za-z0-9]|$)'
+  # IBAN — 2-letter country, 2 check digits, up to 30 alphanumerics. Optional
+  # single spaces/tabs between characters cover the ISO 13616 human-readable
+  # form ("GB29 NWBK 6016 1331 9268 19") as well as the compact form. The
+  # uppercase-only body ([A-Z0-9]) keeps spaced prose from matching, since the
+  # trailing boundary must follow 11-30 uppercase-alphanumerics. [ \t]* (not
+  # \s) so the match cannot span newlines.
+  '(^|[^A-Za-z0-9])[A-Z]{2}[0-9]{2}([ \t]*[A-Z0-9]){11,30}([^A-Za-z0-9]|$)'
 
   # DOB — d/m/y with 2 or 4-digit year, slash/dash/dot separators.
   '(^|[^A-Za-z0-9])(0?[1-9]|[12][0-9]|3[01])[/.-](0?[1-9]|1[0-2])[/.-](19|20)[0-9]{2}([^A-Za-z0-9]|$)'

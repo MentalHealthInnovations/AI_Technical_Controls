@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
-# PreToolUse hook for Read. Content-sniff layer of the PII controls.
+# PreToolUse hook for Read, Write, Edit, and MultiEdit. Content-sniff layer of
+# the PII controls.
 #
-# Reads up to SNIFF_BYTES from the target file and regex-scans for PII
-# signatures (emails, UK postcodes, UK phone numbers, UK National Insurance
-# numbers, dates of birth, IBANs, 16-digit card-like sequences). If the
-# content crosses one of two thresholds — distinct categories or single-
-# category density — the Read is denied via hookSpecificOutput.
+# Regex-scans up to SNIFF_BYTES of content for PII signatures (emails, UK
+# postcodes, UK phone numbers, UK National Insurance numbers, dates of birth,
+# IBANs, 16-digit card-like sequences). If the content crosses one of two
+# thresholds — distinct categories or single-category density — the operation
+# is denied via hookSpecificOutput.
+#
+# Content source depends on the tool: Read scans the on-disk file; Write/Edit/
+# MultiEdit scan the inline text being written (.content / .new_string /
+# .edits[].new_string). Scanning the write payload closes the gap where an
+# innocuously-named PII file — which Layer 1's name check misses — could be
+# created via Write and never content-scanned at runtime.
 #
 # Layer 2 of the PII controls. Layer 1 (pii-path-policy-check.sh) denies on
 # path/extension; this layer catches misnamed files where the contents reveal
@@ -42,6 +49,7 @@ logtofile() {
 }
 
 payload="$(cat)"
+tool_name="$(printf '%s' "$payload" | jq -r '.tool_name // empty')"
 file_path="$(printf '%s' "$payload" | jq -r '.tool_input.file_path // empty')"
 
 if [[ -z "$file_path" ]]; then
@@ -54,27 +62,65 @@ if [[ "$file_path" != /* ]]; then
   file_path="$(pwd)/$file_path"
 fi
 
-# If the file doesn't exist or isn't readable, exit silently — the Read tool
-# will fail with its own error and this hook should not preempt that.
-if [[ ! -f "$file_path" || ! -r "$file_path" ]]; then
-  exit 0
-fi
+# Build the scan sample. Two sources, depending on the tool:
+#
+#   Read   — scan the on-disk file content (the bytes about to enter context).
+#   Write  — scan the inline content being written; for a NEW file there is
+#   Edit     nothing on disk yet, and even for an existing file the agent is
+#   MultiEdit introducing the new text, so the payload is what matters. This
+#            closes the gap where an innocuously-named PII file (which Layer 1's
+#            name check misses) was created via Write and never content-scanned
+#            at runtime — only caught later by the commit-time staged scanner.
+#
+# For write-family tools we pull the inline text out of tool_input: Write has
+# .content, Edit has .new_string, MultiEdit has .edits[].new_string. We do NOT
+# scan old_string (it is existing content being removed, not introduced).
+sample=""
+case "$tool_name" in
+  Write|Edit|MultiEdit)
+    sample="$(printf '%s' "$payload" | jq -r '
+      [ .tool_input.content // empty,
+        .tool_input.new_string // empty,
+        ( .tool_input.edits // [] | .[]?.new_string // empty )
+      ] | join("\n")' 2>/dev/null | head -c "$SNIFF_BYTES")"
+    ;;
+  *)
+    # Read (and any other file_path-bearing tool): scan on disk. If the file
+    # doesn't exist or isn't readable, exit silently — the tool will fail with
+    # its own error and this hook should not preempt that.
+    if [[ ! -f "$file_path" || ! -r "$file_path" ]]; then
+      exit 0
+    fi
 
-# Skip obvious binaries. Layer 1 (path policy) is the right place for binary
-# data exports — content scanning xlsx/parquet/sqlite would just produce noise.
-# Heuristic: any NUL byte in the leading MAX_BINARY_CHECK_BYTES classifies
-# the file as binary. Done by stripping all NULs with `tr -d '\0'` and
-# comparing byte counts before vs after — `grep $'\x00'` cannot be used
-# because shell-level NUL terminates the C-string argument.
-head_len_before=$(head -c "$MAX_BINARY_CHECK_BYTES" "$file_path" | wc -c)
-head_len_after=$(head -c "$MAX_BINARY_CHECK_BYTES" "$file_path" | tr -d '\0' | wc -c)
-if [[ "$head_len_before" -ne "$head_len_after" ]]; then
-  logtofile "skip binary (NUL detected): $file_path"
-  exit 0
-fi
+    # Skip binary data *exports* — xlsx/parquet/sqlite and friends — where
+    # content scanning would just produce noise. Layer 1 (path policy) denies
+    # these by name; this is a second guard for the same formats.
+    #
+    # The skip is gated on the file EXTENSION, not on NUL presence alone. A
+    # previous version skipped any file with a NUL in the leading bytes, which
+    # was a fail-open bypass: prepending a single NUL to a text file (e.g.
+    # notes.txt) made the scanner classify it as binary and skip it, even
+    # though the file plainly contained PII. NUL alone is not evidence of a
+    # format we should ignore. So only the known binary extensions below are
+    # skipped on NUL; any other file (text extension or none) is scanned
+    # regardless of NULs. The sample read uses command substitution, which
+    # strips NUL bytes, so the scanned text is clean even when NULs are present.
+    ext_lc="$(printf '%s' "${file_path##*.}" | tr '[:upper:]' '[:lower:]')"
+    case "$ext_lc" in
+      xlsx|xls|parquet|avro|sqlite|db|bin|gz|zip|tar|png|jpg|jpeg|gif|pdf|so|dylib|o)
+        head_len_before=$(head -c "$MAX_BINARY_CHECK_BYTES" "$file_path" | wc -c)
+        head_len_after=$(head -c "$MAX_BINARY_CHECK_BYTES" "$file_path" | tr -d '\0' | wc -c)
+        if [[ "$head_len_before" -ne "$head_len_after" ]]; then
+          logtofile "skip binary (binary extension + NUL detected): $file_path"
+          exit 0
+        fi
+        ;;
+    esac
 
-# Read sample.
-sample="$(head -c "$SNIFF_BYTES" "$file_path")"
+    sample="$(head -c "$SNIFF_BYTES" "$file_path")"
+    ;;
+esac
+
 if [[ -z "$sample" ]]; then
   exit 0
 fi
@@ -87,11 +133,20 @@ script_dir="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=pii-patterns.sh
 . "$script_dir/pii-patterns.sh"
 
-# Match each pattern via awk's gsub (POSIX ERE) and aggregate hits.
+# Match each pattern via awk's match() (POSIX ERE) and aggregate hits.
 #
-# gsub(regex, replacement) returns the number of substitutions, which is what
-# we want as a count. Passing the regex via -v is safer than shell-substituting
-# into a quoted script body: no escape issues with $, ", or backslashes.
+# We loop with match()/RSTART/RLENGTH rather than gsub() counting. gsub()
+# replaces each match including its consumed boundary character, so two PII
+# items separated by a single non-alphanumeric char (e.g. "SW1A 2AA SW1A 2AA")
+# count as one — the first match eats the space that the second needs as its
+# leading boundary. The loop instead re-scans from RSTART+RLENGTH-1, one char
+# before the match end, so that consumed trailing boundary is available again
+# as the next match's leading boundary. This counts adjacent matches correctly
+# and cannot undercount the density threshold. (All patterns match >=2 chars,
+# so the -1 rewind still guarantees forward progress and cannot loop forever.)
+#
+# Passing the regex via -v is safer than shell-substituting into a quoted
+# script body: no escape issues with $, ", or backslashes.
 #
 # bash 3.2 (the macOS system bash) lacks associative arrays, so we track
 # results inline rather than building a name→count map.
@@ -104,7 +159,7 @@ for ((i=0; i<n; i++)); do
   name="${pattern_names[$i]}"
   regex="${pattern_regexes[$i]}"
   conf="${pattern_confs[$i]}"
-  count="$(printf '%s' "$sample" | awk -v r="$regex" 'BEGIN{c=0} {c+=gsub(r,"&")} END{print c+0}' 2>/dev/null)"
+  count="$(printf '%s' "$sample" | awk -v r="$regex" 'BEGIN{c=0} {s=$0; while (match(s,r)>0) {c++; adv=RSTART+RLENGTH-1; if (adv<1) adv=1; s=substr(s,adv)}} END{print c+0}' 2>/dev/null)"
   if [[ -z "$count" ]]; then
     count=0
   fi

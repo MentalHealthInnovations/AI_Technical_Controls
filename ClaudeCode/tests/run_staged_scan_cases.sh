@@ -145,23 +145,21 @@ stage_and_scan "two low-confidence categories (DOB+card)" 0 \
   "01/02/1990 and 4111 1111 1111 1111
 "
 
-# ── KNOWN GAPS (desired-behavior tests — expected to FAIL until the hooks are
-#    fixed). Each documents a confirmed detection hole surfaced in review. They
-#    assert what the scanner SHOULD do, so a red result here is the highlight,
-#    not a regression in the test itself. ────────────────────────────────────
+# ── Regression guards for detection gaps fixed in review. Each previously
+#    failed (the scanner exited 0 on real PII); the listed fix makes it trip. ──
 
-# Spaced IBANs: the IBAN regex requires contiguous alphanumerics after the
-# country+check digits, so the human-readable space-grouped form (the ISO 13616
-# canonical layout) is missed entirely. 12 spaced IBANs SHOULD trip, but the
-# scanner counts 0 and exits clean.
-stage_and_scan "KNOWN GAP (spaced IBAN miss): 12 spaced IBANs should trip" 1 \
+# Spaced IBANs: the IBAN regex now allows optional whitespace between
+# characters, so the ISO 13616 human-readable space-grouped form trips. (Before
+# the fix the regex required contiguous alphanumerics and matched 0.)
+stage_and_scan "regression (spaced IBAN fixed): 12 spaced IBANs trip" 1 \
   "data/ibans.md" \
   "$(printf 'GB29 NWBK 6016 1331 9268 19\n%.0s' {1..12})"
 
-# Adjacency undercount: boundary-wrapped patterns consume the separator, so two
-# adjacent matches count as one. 18 space-separated postcodes count as 9 (under
-# the density trip) even though the file plainly contains 18.
-stage_and_scan "KNOWN GAP (adjacency undercount): 18 packed postcodes should trip" 1 \
+# Adjacency undercount: the consumers now count with a match()/RSTART/RLENGTH
+# loop instead of gsub(), so adjacent items no longer share a consumed boundary.
+# 18 space-separated postcodes now count as 18 (>= density trip). (Before the
+# fix gsub counted them as 9, under the threshold.)
+stage_and_scan "regression (undercount fixed): 18 packed postcodes trip" 1 \
   "data/postcodes.md" \
   "$(printf 'SW1A 2AA %.0s' {1..18})"
 
@@ -170,9 +168,8 @@ stage_and_scan "KNOWN GAP (adjacency undercount): 18 packed postcodes should tri
 # and bash command substitution strips NUL bytes, so the in-script binary check
 # (${blob:0:N} before vs after tr -d '\0') sees equal lengths and does NOT skip —
 # the scanner then scans the NUL-stripped text and detects the PII. The bypass is
-# therefore content-sniff-only; see the nul_prefixed_pii.txt case in
-# pii-content-sniff.jsonl, where head -c piped to wc counts the NUL before
-# substitution and the file is wrongly skipped.
+# therefore content-sniff-only; the content-sniff fix gates the binary skip on
+# file extension (see nul_prefixed_pii.txt in pii-content-sniff.jsonl).
 
 # No-args invocation — scans whole index. Stage three files (one tripping)
 # and confirm scanner exits non-zero with no positional args.

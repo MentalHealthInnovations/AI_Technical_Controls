@@ -74,8 +74,18 @@ fi
 scan_file() {
   local path="$1"
 
+  # An exclude entry ending in "/" is a directory prefix: it matches that path
+  # and anything beneath it. An entry without a trailing "/" is an EXACT path
+  # match. We avoid a bare "$prefix"* glob because that matched on a substring
+  # boundary — e.g. the file entry "…/run_staged_scan_cases.sh" would also have
+  # excluded "…/run_staged_scan_cases.sh.bak", silently creating a safe-harbour
+  # for any derived file.
   for prefix in "${EXCLUDE_PREFIXES[@]}"; do
-    if [[ "$path" == "$prefix"* ]]; then
+    if [[ "$prefix" == */ ]]; then
+      if [[ "$path" == "$prefix"* ]]; then
+        return 0
+      fi
+    elif [[ "$path" == "$prefix" ]]; then
       return 0
     fi
   done
@@ -109,7 +119,13 @@ scan_file() {
     name="${pattern_names[$i]}"
     regex="${pattern_regexes[$i]}"
     conf="${pattern_confs[$i]}"
-    count="$(printf '%s' "$sample" | awk -v r="$regex" 'BEGIN{c=0} {c+=gsub(r,"&")} END{print c+0}' 2>/dev/null)"
+    # match()/RSTART/RLENGTH loop, not gsub() counting: gsub consumes each
+    # match's boundary char, undercounting adjacent PII items (two postcodes
+    # separated by one space count as one). Re-scanning from RSTART+RLENGTH-1
+    # keeps the consumed trailing boundary available as the next match's leading
+    # boundary. All patterns match >=2 chars, so the rewind still advances.
+    # Kept identical to pii-content-sniff.sh so both layers count the same.
+    count="$(printf '%s' "$sample" | awk -v r="$regex" 'BEGIN{c=0} {s=$0; while (match(s,r)>0) {c++; adv=RSTART+RLENGTH-1; if (adv<1) adv=1; s=substr(s,adv)}} END{print c+0}' 2>/dev/null)"
     [[ -z "$count" ]] && count=0
     if [[ "$count" -gt 0 ]]; then
       distinct=$((distinct + 1))

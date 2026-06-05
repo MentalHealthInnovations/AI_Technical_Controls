@@ -97,15 +97,17 @@ for fixture in "${fixtures[@]}"; do
   fi
 
   # Independently count each pattern against the fixture so reviewers can see
-  # how close to threshold each fixture sits. Uses the same sample size as
-  # the hook (first 64 KiB) and the same awk-based counting shape.
+  # how close to threshold each fixture sits. Uses the same sample size (first
+  # 64 KiB) and the same match()/RSTART/RLENGTH counting loop as the hook, so
+  # the displayed counts match what the hook actually scored. (Using gsub here
+  # would under-report adjacent matches and disagree with the hook's verdict.)
   sample="$(head -c 65536 "$fixture")"
   printf '  %-40s' "$short_rel"
   n="${#pattern_names[@]}"
   for ((i=0; i<n; i++)); do
     name="${pattern_names[$i]}"
     regex="${pattern_regexes[$i]}"
-    count="$(printf '%s' "$sample" | awk -v r="$regex" 'BEGIN{c=0} {c+=gsub(r,"&")} END{print c+0}' 2>/dev/null)"
+    count="$(printf '%s' "$sample" | awk -v r="$regex" 'BEGIN{c=0} {s=$0; while (match(s,r)>0) {c++; adv=RSTART+RLENGTH-1; if (adv<1) adv=1; s=substr(s,adv)}} END{print c+0}' 2>/dev/null)"
     [[ -z "$count" ]] && count=0
     printf ' %-*s' "$pname_width" "$count"
     if [[ "$count" -gt 0 ]]; then

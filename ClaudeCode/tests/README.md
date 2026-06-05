@@ -42,25 +42,23 @@ One JSON object per line (JSONL). Required fields:
 
 See the directory's [MANIFEST.md](cases/fixtures/pii-content-wild/MANIFEST.md) for provenance, known sub-threshold scores, and how to add a new fixture.
 
-## Known-gap cases (expected to FAIL until fixed)
+## Regression guards for review-fixed gaps
 
-Some cases assert the **desired** behaviour for confirmed detection holes surfaced
-in review, so they fail against the current hooks. A red result on these is the
-point — it keeps the gap visible in CI until the underlying code is fixed, at
-which point the case flips to green. Each is labelled `KNOWN GAP (...)` in its
-name. Current entries:
+Some cases lock in fixes for detection holes found in review. Each previously
+slipped real PII through; the corresponding fix makes the detector trip, and the
+case guards against regressing it:
 
-| Gap | Where | What the case asserts | Why it fails today |
-|---|---|---|---|
-| NUL-byte content bypass | `pii-content-sniff.jsonl` (`nul_prefixed_pii.txt`) | A text file with a leading NUL byte + 3 PII categories should be denied | A NUL in the first 1 KiB makes the binary heuristic classify the file as binary and skip scanning ([pii-content-sniff.sh](../opt/claude/hooks/pii-content-sniff.sh) lines 69-74). Content-sniff only — the staged scanner reads via `$(git show)`, which strips NULs, so the bypass does not reproduce there. |
-| Adjacency undercount | `pii-content-sniff.jsonl` + `run_staged_scan_cases.sh` (18 space-separated postcodes) | 18 postcodes should trip the density threshold | Boundary-wrapped patterns `(^\|[^A-Za-z0-9])...([^A-Za-z0-9]\|$)` consume the separator, so `gsub` counts adjacent matches as one — 18 postcodes count as 9, under `DENSITY_TRIP=10`. |
-| Spaced-IBAN miss | `pii-content-sniff.jsonl` + `run_staged_scan_cases.sh` (12 spaced IBANs) | A file full of space-grouped IBANs should trip | The IBAN regex requires contiguous alphanumerics, so the ISO 13616 human-readable form (`GB29 NWBK 6016 ...`) matches 0 times. |
+| Gap | Where | Fix it guards |
+|---|---|---|
+| NUL-byte content bypass | `pii-content-sniff.jsonl` (`nul_prefixed_pii.txt`) | The binary skip is now gated on a binary file *extension*, not on NUL presence alone, so a text file with a stray/prepended NUL is still scanned ([pii-content-sniff.sh](../opt/claude/hooks/pii-content-sniff.sh)). Content-sniff only — the staged scanner reads via `$(git show)`, which strips NULs, so the bypass never applied there. |
+| Adjacency undercount | `pii-content-sniff.jsonl` + `run_staged_scan_cases.sh` (18 space-separated postcodes) | Both consumers now count with a `match()`/`RSTART`/`RLENGTH` loop instead of `gsub()`, so adjacent matches separated by one non-alphanumeric char no longer share a consumed boundary. 18 postcodes count as 18, not 9. |
+| Spaced-IBAN miss | `pii-content-sniff.jsonl` + `run_staged_scan_cases.sh` (12 spaced IBANs) | The IBAN regex now allows optional whitespace between characters, so the ISO 13616 human-readable form (`GB29 NWBK 6016 ...`) matches. |
 
-The Write-path gap (content-sniff is registered for `Read` only, so an
-innocuously-named PII file written via `Write` is never content-scanned at
-runtime) is a `managed-settings.json` registration gap, not a hook-script bug, so
-it is not expressible in these script-level runners — it is documented in the PR's
-security risk assessment instead.
+The Write-path gap (an innocuously-named PII file created via `Write`/`Edit` was
+never content-scanned at runtime) is addressed in `managed-settings.json` by
+registering `pii-content-sniff.sh` for `Edit|Write|MultiEdit` as well as `Read`;
+the hook scans the inline `content`/`new_string` payload when there is no file on
+disk yet. See that hook's header for the dual Read-vs-write-payload paths.
 
 ## Integration tests
 
