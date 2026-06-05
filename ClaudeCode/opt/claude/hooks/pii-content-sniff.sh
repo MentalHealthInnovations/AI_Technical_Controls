@@ -128,9 +128,14 @@ deny() {
 }
 
 if [[ "$distinct" -ge "$DISTINCT_TRIP" ]]; then
-  # Sort for deterministic log output.
-  IFS=$'\n' sorted_distinct=($(sort <<<"${distinct_names[*]}"))
-  unset IFS
+  # Sort for deterministic log output. Build the array with a while-read loop
+  # rather than mapfile or $(...) word-splitting: mapfile needs bash 4 (this
+  # hook can run under macOS system bash 3.2), and an unquoted $(...) trips
+  # SC2207.
+  sorted_distinct=()
+  while IFS= read -r line; do
+    sorted_distinct+=("$line")
+  done < <(printf '%s\n' "${distinct_names[@]}" | sort)
   joined="$(IFS=, ; echo "${sorted_distinct[*]}")"
   deny "PII content detected: $distinct distinct categories ($joined)"
 fi

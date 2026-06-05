@@ -41,6 +41,8 @@
 # the arrays the same length — both consumers iterate by index.
 #
 # bash 3.2 compatible (macOS system bash). No associative arrays, no namerefs.
+#
+# shellcheck disable=SC2034  # arrays are consumed by sourcing files (sniff/scan)
 
 pattern_names=(
   "EMAIL"

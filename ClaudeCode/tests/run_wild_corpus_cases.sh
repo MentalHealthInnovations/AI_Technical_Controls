@@ -9,6 +9,11 @@
 #
 # Adding a fixture: drop it under fixtures/pii-content-wild/ and update that
 # directory's MANIFEST.md. The runner discovers files automatically.
+#
+# pattern_names / pattern_regexes are defined in the sourced pii-patterns.sh,
+# which shellcheck cannot follow at lint time (SC1091) so it would otherwise
+# flag them as unassigned (SC2154).
+# shellcheck disable=SC2154
 set -u
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -33,7 +38,7 @@ fi
 # Load pattern definitions so we can independently count per-pattern hits
 # without inferring them from the hook's deny output (which only fires on
 # trip and so reveals nothing about sub-threshold scores).
-# shellcheck source=../opt/claude/hooks/pii-patterns.sh
+# shellcheck source=../opt/claude/hooks/pii-patterns.sh disable=SC1091
 . "$patterns_file"
 
 # Locate all corpus files. Skip MANIFEST.md (documentation, not a fixture).
@@ -73,7 +78,7 @@ samples_out=""
 
 for fixture in "${fixtures[@]}"; do
   total=$((total + 1))
-  rel="${fixture#$repo_root/}"
+  rel="${fixture#"$repo_root"/}"
   short_rel="${rel#ClaudeCode/tests/cases/fixtures/pii-content-wild/}"
 
   # Drive the hook the same way Claude's harness does, then capture the verdict.

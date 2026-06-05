@@ -16,6 +16,11 @@
 #   0 — no PII detected in any staged file
 #   1 — PII detected; commit/CI should fail
 #   2 — invocation error (missing dependency, not a git repo, etc.)
+#
+# pattern_names / pattern_regexes / pattern_confs are defined in pii-patterns.sh,
+# sourced at runtime; shellcheck cannot follow that include (SC1091) so it would
+# otherwise flag them as unassigned (SC2154).
+# shellcheck disable=SC2154
 set -u
 
 DISTINCT_TRIP=3
@@ -29,6 +34,10 @@ SNIFF_BYTES=65536
 # for accidental PII.
 EXCLUDE_PREFIXES=(
   "ClaudeCode/tests/cases/fixtures/"
+  # The staged-scan test runner embeds synthetic PII inline to drive the
+  # scanner against temporary git repos. Its values are fictional (example.test
+  # addresses, Ofcom reserved phone range, canonical example IBAN/postcode).
+  "ClaudeCode/tests/run_staged_scan_cases.sh"
 )
 
 script_dir="$(cd "$(dirname "$0")" && pwd)"
@@ -39,7 +48,7 @@ if [[ ! -f "$patterns_file" ]]; then
   echo "pii-staged-scan: cannot find $patterns_file" >&2
   exit 2
 fi
-# shellcheck source=../opt/claude/hooks/pii-patterns.sh
+# shellcheck source=../opt/claude/hooks/pii-patterns.sh disable=SC1091
 . "$patterns_file"
 
 if ! command -v git >/dev/null 2>&1; then
@@ -115,8 +124,8 @@ scan_file() {
   local tripped="" reason=""
   if [[ "$distinct" -ge "$DISTINCT_TRIP" ]]; then
     local joined
-    IFS=$'\n' sorted=($(sort <<<"${distinct_names[*]}"))
-    unset IFS
+    local sorted=()
+    mapfile -t sorted < <(printf '%s\n' "${distinct_names[@]}" | sort)
     joined="$(IFS=, ; echo "${sorted[*]}")"
     tripped="distinct"
     reason="$distinct distinct PII categories ($joined)"

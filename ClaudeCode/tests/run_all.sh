@@ -10,11 +10,11 @@ runner="$here/run_hook_cases.sh"
 # under $repo_root/ClaudeCode/tests/cases/fixtures/..., so the suite must run
 # with $repo_root as cwd regardless of where the runner was invoked from
 # (CI workflow without working-directory, local cd into tests/, etc.).
-cd "$repo_root"
+cd "$repo_root" || exit 1
 
 declare -a suites=(
-  "pii-path-policy-check.sh|pii-path-policy.json"
-  "pii-content-sniff.sh|pii-content-sniff.json"
+  "pii-path-policy-check.sh|pii-path-policy.jsonl"
+  "pii-content-sniff.sh|pii-content-sniff.jsonl"
 )
 
 overall_fail=0
