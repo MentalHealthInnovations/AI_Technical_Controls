@@ -13,3 +13,6 @@
 {"name": "phone digits split across lines - no trip after \\s tightening", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/cross_line_phone.txt"}, "expect": "unset"}
 {"name": "hex hash 10-digit runs - no trip after intra-word boundary fix", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/hex_hash_digits.txt"}, "expect": "unset"}
 {"name": "tab-separated phone still matches (positive control after tightening)", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/phone_with_tab.txt"}, "expect": "deny"}
+{"name": "KNOWN GAP (NUL bypass): text file with leading NUL + 3 PII categories SHOULD deny", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/nul_prefixed_pii.txt"}, "expect": "deny"}
+{"name": "KNOWN GAP (adjacency undercount): 18 space-separated postcodes SHOULD trip density", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/packed_postcodes.txt"}, "expect": "deny"}
+{"name": "KNOWN GAP (spaced IBAN miss): 12 spaced IBANs SHOULD trip density", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/spaced_ibans.txt"}, "expect": "deny"}
