@@ -19,3 +19,19 @@ repos:
         args: ["--maxkb=512"]
       - id: check-executables-have-shebangs
       - id: check-shebang-scripts-are-executable
+
+  - repo: local
+    hooks:
+      - id: pii-staged-scan
+        name: PII staged-content scan
+        description: >
+          Scans staged file content for PII signatures (emails, UK postcodes,
+          UK phone numbers, UK National Insurance numbers, IBANs, DOBs,
+          card-shaped 16-digit groups). Trips on 3+ distinct categories or
+          10+ hits of a single high-confidence pattern. Detectors live in
+          ClaudeCode/opt/claude/hooks/pii-patterns.sh, shared with the
+          runtime PreToolUse hook pii-content-sniff.sh.
+        entry: ClaudeCode/scripts/pii-staged-scan.sh
+        language: system
+        pass_filenames: true
+        types: [text]
