@@ -63,10 +63,10 @@
 
 <!-- Merges to main are deployed to managed machines automatically by the daily pull_claude_governance.sh cron. -->
 
-- [ ] This change reaches managed machines on the next daily pull after merge.
-- [ ] A rollback plan exists if it misbehaves (describe below).
+### Rollback plan
 
-<!-- Rollback / staging notes. If this change cannot be safely auto-deployed, say so and how it will be gated. -->
+<!-- How to revert this change if it does not behave as intended in production. -->
+<!-- If the change cannot be safely auto-deployed, say so here and describe how it will be gated. -->
 
 ---
 
