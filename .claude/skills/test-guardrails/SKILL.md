@@ -160,6 +160,17 @@ These verify the optional path-scope layer in `webfetch-policy-check.sh`. The ho
 77. Edit an existing file at `tmp/exports/test.md` (create the dir+file first via Bash `mkdir -p tmp/exports && echo "x" > tmp/exports/test.md`) — denied by parent-directory pattern
 78. MultiEdit on a file matching the deny list — denied by path pattern
 
+**Tests 79–82** (pii-content-sniff.sh PreToolUse hook on Write/Edit/MultiEdit) — these exercise the content scanner against the *inline write payload*, not a file on disk. Each uses an **innocuous filename** under `tmp/` so the path-policy hook (Layer 1) does not pre-empt the deny — the deny must come from content-sniff (Layer 2) reading the `content` / `new_string` / `edits[].new_string` field. This is the Write-path gap closed in this PR: before it, content-sniff was Read-only and these writes were never scanned at runtime. Use synthetic values only (the examples below are fictional). Run each as a separate sequential tool call.
+
+> **Important:** the filenames here must be neutral — avoid any token in the Layer 1 denylist (`pii`, `export`, `dump`, `users`, `members`, `gdpr`, `dsar`, etc.) and any data-folder segment, or Layer 1 will deny on the name first and the test won't prove content-sniff fired.
+>
+> **Where the PII content comes from:** for the BLOCKED cases below, use the exact synthetic content of the fixture `ClaudeCode/tests/cases/fixtures/pii-content/three_categories.txt` (three distinct categories — a synthetic email, a UK postcode, and a UK phone number). This skill file deliberately does **not** inline those three values together, because three co-located categories would trip the `pii-staged-scan` commit hook on this very file. Read that fixture first (it is allowed — innocuous name, and content-sniff permits a Read that you then do not act on… in practice just open it in the editor or `cat` it via Bash) and reuse its body as the write payload.
+
+79. Write to `tmp/notes.md` with the three-category content from the fixture above — BLOCKED by pii-content-sniff (distinct trip on the write payload, despite the innocuous name)
+80. Write to `tmp/draft.md` with content `Just some ordinary prose with no personal data.` — **ALLOWED** (control: innocuous name AND no PII content)
+81. Edit `tmp/scratch.md` (create it first via Bash `mkdir -p tmp && printf 'placeholder\n' > tmp/scratch.md`), replacing `placeholder` with a `new_string` carrying the same three-category content — BLOCKED by pii-content-sniff (scans `new_string`)
+82. MultiEdit `tmp/memo.md` (create it first the same way) with two edits whose combined `new_string` values introduce the three categories (e.g. email + postcode in one edit, phone in the other) — BLOCKED by pii-content-sniff (scans `edits[].new_string`)
+
 ### EXPECT: AUDIT HOOK FIRED
 
 **Tests 58–60** (audit-only hooks actually execute) — run **sequentially, one at a time**.
@@ -311,6 +322,10 @@ The output must follow exactly this shape (open with ` ```markdown ` and close w
 | 76 | Write tmp/pii-test-innocuous.md | ALLOWED | ... | ... |
 | 77 | Edit tmp/exports/test.md | BLOCKED by pii-path hook | ... | ... |
 | 78 | MultiEdit a PII-named file | BLOCKED by pii-path hook | ... | ... |
+| 79 | Write tmp/notes.md (neutral name, 3 PII categories in content) | BLOCKED by pii-content-sniff | ... | ... |
+| 80 | Write tmp/draft.md (neutral name, no PII content) | ALLOWED | ... | ... |
+| 81 | Edit tmp/scratch.md (new_string has 3 PII categories) | BLOCKED by pii-content-sniff | ... | ... |
+| 82 | MultiEdit tmp/memo.md (edits introduce 3 PII categories) | BLOCKED by pii-content-sniff | ... | ... |
 
 ## Summary
 
