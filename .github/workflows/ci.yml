@@ -1,0 +1,50 @@
+name: CI
+
+# Lint / format / config-validity checks for the governance control pack.
+#
+# All checks are defined once in .pre-commit-config.yaml and run here via
+# `pre-commit run --all-files`, so there is no duplicated check configuration.
+#
+# Scope: syntax, formatting, and config validity only. This workflow does NOT
+# verify guardrail *behaviour* (no Claude Code, no hook payloads). The
+# /test-guardrails suite remains the behaviour regression net and a full run is
+# required in the PR description for changes to hooks, permissions, sandbox
+# config, or managed-settings.json.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pre-commit:
+    name: pre-commit (lint, format, validate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The shellcheck hook runs in Docker (shellcheck-precommit), which the
+      # ubuntu-latest runner provides out of the box — no manual install. We set
+      # up Python only for pre-commit itself.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install pre-commit
+        run: pip install pre-commit
+
+      - name: Cache pre-commit environments
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Run all hooks
+        run: pre-commit run --all-files --show-diff-on-failure

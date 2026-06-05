@@ -21,6 +21,8 @@ A layered configuration system that makes Claude Code safer to use at scale. The
 | `ClaudeCode/InstallClaudeGovernance.sh` | One-time macOS bootstrap for `pull_claude_governance.sh` |
 | [Appendix: AWS audit-log setup](#appendix-aws-audit-log-setup) | Phase 0 manual AWS setup for the audit-log S3 bucket + IAM (IaC later) |
 | `.claude/skills/test-guardrails/SKILL.md` | `/test-guardrails` verification suite |
+| `.github/workflows/ci.yml` | CI: runs `pre-commit run --all-files` on PRs and pushes to `main` |
+| `.pre-commit-config.yaml` | Single source of truth for lint/format/validation checks (run by CI and optionally locally) |
 
 ## Installation
 
@@ -239,6 +241,33 @@ If declined and you disagree, escalate via your line manager to head of IT or se
 | Read `.env` | Credential exposure | Pass values via env vars, not files |
 | Arbitrary domains | Egress control | Submit a domain addition |
 | `git --force` | Destructive | Use non-destructive git workflows |
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every PR and on pushes to `main`. It installs `pre-commit` and runs `pre-commit run --all-files`, so the lint, format, and config-validity checks are defined once in `.pre-commit-config.yaml` and run identically locally and in CI.
+
+What CI covers:
+
+| Check | Hook | Catches |
+|---|---|---|
+| Shell lint | `shellcheck` (`-x`, severity warning) | unquoted vars, lost exit codes, subshell scoping bugs, and similar faults that can make a hook silently *allow* what it should block |
+| JSON validity | `check-json` | a malformed `managed-settings.json` or `.claude/settings.json` that would break enforcement or startup |
+| YAML validity | `check-yaml` | broken workflow / config YAML |
+| Hygiene | `end-of-file-fixer`, `trailing-whitespace`, `mixed-line-ending`, `check-merge-conflict`, `check-added-large-files`, shebang checks | stray bytes, unresolved conflicts, accidental large files |
+
+> **CI does not verify guardrail *behaviour*.** It checks that scripts parse and configs are valid, not that a given command is still blocked. The `/test-guardrails` suite is the behaviour regression net; a full run is required in the PR description for changes to hooks, permissions, sandbox config, or `managed-settings.json` (see the PR template).
+
+`.pre-commit-config.yaml` is in the sandbox write-deny list by design, so Claude Code cannot edit it — the same control that protects `.git/hooks` and `.husky`. Maintainers edit it by hand.
+
+Optional local install (catches the same issues before you push):
+
+```sh
+pip install pre-commit   # or: brew install pre-commit
+pre-commit install       # runs the hooks on each commit
+pre-commit run --all-files   # run them all on demand
+```
+
+Pre-commit is bypassable with `git commit --no-verify`, so CI is the real gate; local install is a convenience.
 
 ## Governance alignment
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+# shellcheck shell=bash
 # Shared secret-redaction library.
 #
 # Used by output-redact.sh (PostToolUse) and prompt-submit.sh (UserPromptSubmit).
