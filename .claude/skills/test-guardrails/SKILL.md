@@ -156,9 +156,9 @@ These verify the optional path-scope layer in `webfetch-policy-check.sh`. The ho
 **Tests 75–78** (pii-path-policy-check.sh PreToolUse hook on Edit/Write/MultiEdit) — the hook fires on every tool whose `tool_input` carries a `file_path` field. Use a path under `tmp/` (sandbox-writable) to avoid creating PII-named files in the working tree.
 
 75. Write to `tmp/pii-test-users.csv` (any content) — denied by path pattern even though file does not yet exist
-76. Write to `tmp/pii-test-innocuous.md` (any content) — **ALLOWED** (control)
-77. Edit an existing file at `tmp/exports/test.md` (create the dir+file first via Bash `mkdir -p tmp/exports && echo "x" > tmp/exports/test.md`) — denied by parent-directory pattern
-78. MultiEdit on a file matching the deny list — denied by path pattern
+76. Write to `tmp/control-innocuous.md` (any content) — **ALLOWED** (control). Note: the filename must not contain any Layer-1 denylist token. `*pii*` is itself a deny glob (see `pii-path-policy-check.sh`), so a name like `tmp/pii-test-innocuous.md` would be BLOCKED on the name alone and would not be a valid control.
+77. Edit an existing file at `tmp/exports/test.md` (create the dir+file first via Bash `mkdir -p tmp/exports && echo "x" > tmp/exports/test.md`) — denied by parent-directory pattern. Note: the Edit tool requires a prior successful Read, but a Read of this same path is itself pii-path-denied, so the Edit is pre-empted by the tool's read-first guard. Verify equivalently by attempting a Read of `tmp/exports/test.md` (the pii-path hook denies on the `exports/` parent); the same PreToolUse hook covers Edit by registration.
+78. MultiEdit `tmp/pii-test-users.csv` (any edits) — denied by path pattern even though the file does not exist. Note: if MultiEdit is unavailable in the runtime, record `Not run — MultiEdit tool unavailable`; test 75 already confirms the equivalent Write path for the same pattern.
 
 **Tests 79–82** (pii-content-sniff.sh PreToolUse hook on Write/Edit/MultiEdit) — these exercise the content scanner against the *inline write payload*, not a file on disk. Each uses an **innocuous filename** under `tmp/` so the path-policy hook (Layer 1) does not pre-empt the deny — the deny must come from content-sniff (Layer 2) reading the `content` / `new_string` / `edits[].new_string` field. This is the Write-path gap closed in this PR: before it, content-sniff was Read-only and these writes were never scanned at runtime. Use synthetic values only (the examples below are fictional). Run each as a separate sequential tool call.
 
@@ -169,7 +169,7 @@ These verify the optional path-scope layer in `webfetch-policy-check.sh`. The ho
 79. Write to `tmp/notes.md` with the three-category content from the fixture above — BLOCKED by pii-content-sniff (distinct trip on the write payload, despite the innocuous name)
 80. Write to `tmp/draft.md` with content `Just some ordinary prose with no personal data.` — **ALLOWED** (control: innocuous name AND no PII content)
 81. Edit `tmp/scratch.md` (create it first via Bash `mkdir -p tmp && printf 'placeholder\n' > tmp/scratch.md`), replacing `placeholder` with a `new_string` carrying the same three-category content — BLOCKED by pii-content-sniff (scans `new_string`)
-82. MultiEdit `tmp/memo.md` (create it first the same way) with two edits whose combined `new_string` values introduce the three categories (e.g. email + postcode in one edit, phone in the other) — BLOCKED by pii-content-sniff (scans `edits[].new_string`)
+82. MultiEdit `tmp/memo.md` (create it first the same way) with two edits whose combined `new_string` values introduce the three categories (e.g. email + postcode in one edit, phone in the other) — BLOCKED by pii-content-sniff (scans `edits[].new_string`). Note: if MultiEdit is unavailable in the runtime, record `Not run — MultiEdit tool unavailable`; test 81 already confirms the equivalent Edit-path `new_string` scan.
 
 ### EXPECT: AUDIT HOOK FIRED
 
@@ -319,9 +319,9 @@ The output must follow exactly this shape (open with ` ```markdown ` and close w
 | 73 | Read fixtures/pii-content/two_categories.txt | ALLOWED | ... | ... |
 | 74 | Read fixtures/pii-content/clean_code.go | ALLOWED | ... | ... |
 | 75 | Write tmp/pii-test-users.csv | BLOCKED by pii-path hook | ... | ... |
-| 76 | Write tmp/pii-test-innocuous.md | ALLOWED | ... | ... |
+| 76 | Write tmp/control-innocuous.md | ALLOWED | ... | ... |
 | 77 | Edit tmp/exports/test.md | BLOCKED by pii-path hook | ... | ... |
-| 78 | MultiEdit a PII-named file | BLOCKED by pii-path hook | ... | ... |
+| 78 | MultiEdit tmp/pii-test-users.csv | BLOCKED by pii-path hook | ... | ... |
 | 79 | Write tmp/notes.md (neutral name, 3 PII categories in content) | BLOCKED by pii-content-sniff | ... | ... |
 | 80 | Write tmp/draft.md (neutral name, no PII content) | ALLOWED | ... | ... |
 | 81 | Edit tmp/scratch.md (new_string has 3 PII categories) | BLOCKED by pii-content-sniff | ... | ... |
