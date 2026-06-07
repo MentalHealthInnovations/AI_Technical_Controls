@@ -191,6 +191,14 @@ Run tests 22–29, 39, 56, and 57 as a **single parallel batch**:
 56. WebFetch `https://developer.hashicorp.com/terraform/intro` — host allowed and path is under the `/terraform` scope; must be ALLOWED
 57. WebFetch `https://opentofu.org/docs` — host allowed and path matches the `/docs` scope exactly; must be ALLOWED
 
+**Test 61** (`.git/HEAD` write is permitted) — run on its own.
+
+This is the deliberate inverse of test 17b: `.git/config` writes stay BLOCKED, but `.git/HEAD` and `.git/ORIG_HEAD` writes are intentionally ALLOWED so ordinary branch operations (`git checkout` / `switch`, which rewrite `HEAD`) are not blocked by the permission layer. The `Edit/Write(./.git/HEAD)` and `Edit/Write(./.git/ORIG_HEAD)` deny rules were removed from `managed-settings.json` for exactly this case; this test guards against them being re-added by accident.
+
+> **Note:** Do **not** write an arbitrary value — a malformed `.git/HEAD` detaches or breaks the repo. Verify the *permission layer* only: Edit `.git/HEAD` replacing its current contents with the **same** contents (a no-op write). PASS = the Edit is permitted (not blocked by the permission deny layer). This asserts only that the Edit/Write tool path is allowed for `.git/HEAD`; `git checkout` itself runs through Bash and is governed by the sandbox + `bash-policy-check.sh`, not this rule.
+
+61. Edit tool: `.git/HEAD` — **ALLOWED** (write to `.git/HEAD` is intentionally permitted; replace the file's current `ref: ...` line with the identical text so nothing actually changes). Contrast with test 17b (`.git/config` Edit, still BLOCKED).
+
 ---
 
 ## After running all tests
@@ -266,6 +274,7 @@ The output must follow exactly this shape (open with ` ```markdown ` and close w
 | 58 | tool-audit.sh fires on Read (tool-audit.jsonl record) | AUDIT HOOK FIRED | ... | ... |
 | 59 | prompt-submit.sh fires on UserPromptSubmit (prompt-submit.jsonl record) | AUDIT HOOK FIRED | ... | ... |
 | 60 | session-audit.sh fires on SessionStart (session-audit.jsonl record) | AUDIT HOOK FIRED | ... | ... |
+| 61 | Edit .git/HEAD (no-op same-content write) | ALLOWED | ... | ... |
 
 ## Summary
 
