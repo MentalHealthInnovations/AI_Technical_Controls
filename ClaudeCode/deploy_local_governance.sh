@@ -67,8 +67,21 @@ echo "Writing version stamp..."
 # released version. Production pull_claude_governance.sh writes the bare deployed
 # SHA; we prefix "local:" and append "-dirty" when the tree has uncommitted edits,
 # so a stray test deploy is never mistaken for a clean main checkout.
-repo_sha="$(git -C "$script_dir" rev-parse HEAD 2>/dev/null || echo unknown)"
-if ! git -C "$script_dir" diff --quiet HEAD 2>/dev/null; then
+#
+# We run as root (via sudo) but the checkout is typically owned by the admin's
+# normal login, not root and not necessarily the sudo-invoking account. Git then
+# refuses to operate on the repo ("detected dubious ownership" — verified: it
+# flags the repo top-level), which would leave every stamp reading "unknown".
+# Trust the checkout for the duration of these two read-only commands only, via a
+# per-invocation -c safe.directory=* . The wildcard avoids hard-coding where the
+# repo root sits relative to this script; because it is passed with -c (not
+# `git config`), it touches no persistent or global config — it applies to this
+# process only.
+git_repo() {
+  git -c "safe.directory=*" -C "$script_dir" "$@"
+}
+repo_sha="$(git_repo rev-parse HEAD 2>/dev/null || echo unknown)"
+if ! git_repo diff --quiet HEAD 2>/dev/null; then
   repo_sha="${repo_sha}-dirty"
 fi
 echo "local:${repo_sha}" > "$claude_config_dir/VERSION"
