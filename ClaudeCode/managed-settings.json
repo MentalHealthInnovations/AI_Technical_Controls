@@ -88,8 +88,6 @@
 
       "Edit(./.git/hooks/**)",
       "Edit(./.git/config)",
-      "Edit(./.git/HEAD)",
-      "Edit(./.git/ORIG_HEAD)",
       "Edit(./.git/packed-refs)",
       "Edit(./.husky/**)",
       "Edit(./.pre-commit-config.yaml)",
@@ -118,8 +116,6 @@
 
       "Write(./.git/hooks/**)",
       "Write(./.git/config)",
-      "Write(./.git/HEAD)",
-      "Write(./.git/ORIG_HEAD)",
       "Write(./.git/packed-refs)",
       "Write(./.husky/**)",
       "Write(/Library/Application Support/ClaudeCode/**)",
