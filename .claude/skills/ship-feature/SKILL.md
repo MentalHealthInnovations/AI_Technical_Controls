@@ -20,6 +20,7 @@ This environment is sandboxed with governance hooks. Some commands will be **blo
 
 - Attempt the command the approved way first (see the git/PR conventions below).
 - If it is **denied by a hook**, **fails on auth/permissions**, or is **outside the sandbox**, do **not** search for a workaround. Stop, and hand the exact command to the user to run themselves, with a one-line explanation of why you couldn't. Then wait for them to confirm it's done (or paste output) before continuing any step that depends on it.
+- Some failures look like auth errors but are sandbox file-access denials. Git remote operations (`fetch`, `pull`, `push`) can fail on SSH host-key verification when `~/.ssh/known_hosts` is unreadable, and `gh` can fail when `~/.config/gh/` is unreadable. Treat these as handoffs, not as auth problems to debug: give the user the exact command and wait.
 - Never modify `.git/`, `.husky/`, CI guardrails, or hooks to get unblocked.
 
 ## Procedure
@@ -47,7 +48,8 @@ If `git pull`/`fetch` is blocked or fails on network/auth, hand those commands t
 - Make the smallest change that advances the task, verify it (build/lint/tests as the repo provides), then commit. Repeat. Prefer many small commits over one large one — each commit should be a coherent, reviewable unit that leaves the tree working.
 - Stay strictly inside the stated boundaries. If you discover the task needs work outside them, **stop and ask** rather than expanding scope.
 - Commit messages follow **Conventional Commits**: `git commit -m "type(scope): description"` as a **plain double-quoted string on the command line**. Do **not** write the message to a file and `-F`, do **not** use heredocs (`<<'EOF'`), and do **not** use `$(...)` or any command substitution — the bash-policy hook blocks those. For multi-line messages use multiple `-m` flags. If a commit is blocked, hand the exact command to the user.
-- Do not commit secrets, PII, or anything a guardrail would block. If a pre-commit hook blocks a commit, read its output, fix the cause, and retry — do not bypass it (`--no-verify` is off-limits).
+- Do not commit secrets, PII, or anything a guardrail would block. If a pre-commit hook blocks a commit because of your change, read its output, fix the cause, and retry. Do not bypass it (`--no-verify` is off-limits).
+- A pre-commit hook can also fail for an environmental reason unrelated to your diff, for example a hook that runs via Docker when the Docker socket is unreachable in the sandbox. That is not a fix-the-cause case. Verify your change independently where you can, for example run `shellcheck` directly, then hand the exact `git commit` command to the user to run outside the sandbox. Do not use `--no-verify`.
 
 ### 4. Push
 
@@ -96,5 +98,6 @@ Give the user: the branch name, the commit list (`git log --oneline main..HEAD`)
 ## Throughout
 
 - Verify per claim: don't report a test as passing you didn't run, or a step as done that was actually handed off. Label anything unverified.
+- A passing linter (`shellcheck` and similar) confirms the code parses and is style-clean. It does not confirm the code does what it should. For a script that performs privileged or out-of-sandbox actions you cannot run yourself, say so plainly, hand the user the exact command to exercise it, and treat the behaviour as unverified until a real run confirms the effect.
 - Keep edits minimal and reversible. Match the surrounding code's style.
 - If at any point a boundary turns out to be wrong or in conflict with the task, surface it to the user instead of choosing for them.
