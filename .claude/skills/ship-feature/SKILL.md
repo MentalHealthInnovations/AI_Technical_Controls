@@ -67,19 +67,20 @@ If `git pull`/`fetch` is blocked or fails on network/auth, hand those commands t
   - hooks: `/opt/claude/hooks/`
   - settings + managed `CLAUDE.md`: `/Library/Application Support/ClaudeCode/`
 
-  The repo's own `update_ai_governance` / `pull_claude_governance.sh` path will **not** do this for you: it clones and deploys **merged `main` from GitHub**, so it cannot install an un-merged branch. Running it now would test `main`, not your change — a false pass.
+  The repo's own `update_ai_governance` / `pull_claude_governance.sh` path will **not** do this for you: it clones and deploys **merged `main` from GitHub**, so it cannot install an un-merged branch. Running it now would test `main`, not your change, a false pass.
 
-  **You cannot perform the install yourself.** Writing to `/opt`, `/Library`, and `/usr/local` is outside the sandbox, and the copy needs `sudo` (privilege escalation is blocked). So **hand the install to the user** and wait. Do this:
+  **You cannot perform the install yourself.** Writing to `/opt`, `/Library`, and `/usr/local` is outside the sandbox, and the deploy needs `sudo` (privilege escalation is blocked). So **hand the install to the user** and wait. Do this:
 
-  1. Work out exactly which managed files the diff affects, and give the user the precise `sudo cp` command(s) to copy **the branch's** files from the working tree into the managed locations, mirroring `pull_claude_governance.sh`'s destinations. Copy only what changed. For example:
-     - changed hooks → `sudo cp -R ClaudeCode/opt/claude/hooks/. "/opt/claude/hooks/"`
-     - changed settings → `sudo cp ClaudeCode/managed-settings.json "/Library/Application Support/ClaudeCode/"`
-     - changed managed `CLAUDE.md` → `sudo cp ClaudeCode/CLAUDE.md "/Library/Application Support/ClaudeCode/"`
+  1. Have the user deploy the branch's config with the repo's own script, run from the repo root on the branch under test:
 
-     Run these from the repo root on the branch under test. Tell the user this overwrites their live policy with the branch version, and that they can restore the released version afterwards with `update_ai_governance` (which re-pulls `main`).
-  2. **Wait** for the user to confirm the copy succeeded. Do not proceed on the assumption it worked.
-  3. Then run `/test-guardrails` and read the results. The suite restarts may be needed for some hook changes to take effect — if results look like the old version, ask the user to confirm the copy landed (and, where relevant, that the session was restarted) before trusting them.
-  4. If any test is an unexpected result (especially a BLOCKED case that came back ALLOWED), **stop** — that is a guardrail regression. Fix it on the branch, have the user re-copy, and re-run. Do not open the PR with a known regression unless the user explicitly accepts it.
+     ```
+     sudo ClaudeCode/deploy_local_governance.sh
+     ```
+
+     This copies the checkout's `managed-settings.json`, `CLAUDE.md`, and hooks into the managed locations (the same destinations `pull_claude_governance.sh` uses) and stamps `VERSION` with a `local:<sha>[-dirty]` marker so a test deploy is distinguishable from a released `main` checkout. It deploys the whole checkout, so there is no per-file copy to assemble or get wrong. Tell the user this overwrites their live policy with the branch version, and that `update_ai_governance` restores the released version afterwards (it re-pulls `main`).
+  2. **Wait** for the user to confirm the deploy succeeded. Do not proceed on the assumption it worked. The script prints the deployed `VERSION`: confirm it reads `local:<sha>` for the branch under test, not a bare `main` SHA.
+  3. Then run `/test-guardrails` and read the results. The suite restarts may be needed for some hook changes to take effect, so if results look like the old version, ask the user to confirm the deploy landed (and, where relevant, that the session was restarted) before trusting them.
+  4. If any test is an unexpected result (especially a BLOCKED case that came back ALLOWED), **stop**, that is a guardrail regression. Fix it on the branch, have the user re-deploy, and re-run. Do not open the PR with a known regression unless the user explicitly accepts it.
 
   Keep the full `/test-guardrails` results table; it goes into the PR body in the next step.
 
@@ -93,7 +94,7 @@ If `git pull`/`fetch` is blocked or fails on network/auth, hand those commands t
 
 ### 7. Report
 
-Give the user: the branch name, the commit list (`git log --oneline main..HEAD`), the PR URL (or the command you handed off if creation was blocked), the `/test-guardrails` outcome (full pass, or which tests regressed), and a short note of anything left for them to run. If you handed off a `sudo cp` install in step 5, remind the user their live policy now reflects the branch and that `update_ai_governance` restores the released `main` version. Be honest about what was verified vs. assumed — if tests didn't run, were run against the wrong version, or a step was handed off, say so plainly.
+Give the user: the branch name, the commit list (`git log --oneline main..HEAD`), the PR URL (or the command you handed off if creation was blocked), the `/test-guardrails` outcome (full pass, or which tests regressed), and a short note of anything left for them to run. If you handed off a `sudo ClaudeCode/deploy_local_governance.sh` install in step 5, remind the user their live policy now reflects the branch and that `update_ai_governance` restores the released `main` version. Be honest about what was verified vs. assumed: if tests didn't run, were run against the wrong version, or a step was handed off, say so plainly.
 
 ## Throughout
 
