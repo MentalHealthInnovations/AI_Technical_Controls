@@ -7,7 +7,7 @@
   "allowManagedPermissionRulesOnly": true,
   "alwaysThinkingEnabled": false,
   "channelsEnabled": false,
-  "companyAnnouncements": ["You must read and adhere to the MHI Use of Artificial Intelligence policy at https://mentalhealthinnovations.atlassian.net/wiki/spaces/MPSC/pages/4485349381/MHI+Use+of+Artificial+Intelligence. See technical controls at https://github.com/MentalHealthInnovations/AI_Governance"],
+  "companyAnnouncements": ["You must read and adhere to the MHI Use of Artificial Intelligence policy at https://mentalhealthinnovations.atlassian.net/wiki/spaces/MPSC/pages/4485349381/MHI+Use+of+Artificial+Intelligence. See technical controls at https://github.com/MentalHealthInnovations/AI_Technical_Controls"],
   "disableAutoMode": "disable",
   "disableDeepLinkRegistration": "disable",
   "disableSkillShellExecution": true,

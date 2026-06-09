@@ -184,7 +184,7 @@ Run tests 22–29, 39, 56, and 57 as a **single parallel batch**. Test 61 (below
 24. `git log --oneline -5 | grep -v merge` — simple pipeline
 25. `git log --oneline | grep fix | head -5` — two pipes, at threshold
 26. Read tool: `README.md`
-27. WebFetch `https://raw.githubusercontent.com/MentalHealthInnovations/AI_Governance/main/README.md`
+27. WebFetch `https://raw.githubusercontent.com/MentalHealthInnovations/AI_Technical_Controls/main/README.md`
 28. `git log --oneline | grep announce` — "nc" substring false positive check
 29. `git diff --stat HEAD~1` — safe read-only git command; **do NOT use `git commit --allow-empty`** as it pollutes the branch with test commits on every run
 39. WebFetch `https://code.claude.com/docs` — allowed host, any path
