@@ -86,7 +86,7 @@ Two roles: **policy** hooks make allow/deny decisions; **audit** hooks observe a
 - **`prompt-submit.sh`** — captures every prompt the user submits. The prompt text is passed through the same redaction patterns as tool output, so credentials pasted into prompts are stripped before they reach the audit log. The list of patterns that fired is recorded so an analyst can see *that* a secret was present without storing it.
 - **`session-audit.sh`** — records session start (with source: `startup` / `resume` / `clear` / `compact`), `Stop` events, and `SessionEnd` reasons. Lets you reconstruct a per-session timeline by filtering the JSONL trail on `session_id`.
 
-### Audit logs
+## Audit logs
 
 Every hook writes one structured JSON Lines record per invocation to `~/.claude/debug/<hook>.jsonl`. **All invocations are logged, not just blocks or redacts** — allow decisions are recorded as `decision: "allow"` and pure observers use `decision: "observe"`.
 
@@ -99,7 +99,11 @@ Every hook writes one structured JSON Lines record per invocation to `~/.claude/
 | `prompt-submit.sh` | `~/.claude/debug/prompt-submit.jsonl` |
 | `session-audit.sh` | `~/.claude/debug/session-audit.jsonl` |
 
-#### Record shape
+### Retention
+
+All logs are currently kept on device indefinitely. Once centralised logging is set up, these files will be retained for 2 weeks locally, and for 365 days in AWS.
+
+### Record shape
 
 Every record carries a common envelope:
 
