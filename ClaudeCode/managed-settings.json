@@ -16,7 +16,10 @@
   "forceLoginMethod": "claudeai",
   "forceRemoteSettingsRefresh": true,
   "strictKnownMarketplaces": [],
-
+  "spinnerVerbs": {
+    "mode": "replace",
+    "verbs": ["processing"]
+  },
   "autoConnectIde": false,
   "autoInstallIdeExtension": true,
   "editorMode": "normal",
