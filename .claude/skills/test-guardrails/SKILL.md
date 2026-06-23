@@ -41,8 +41,10 @@ Run tests 1–6, 11–16, 18, 21, 34–37 **sequentially, one Bash call at a tim
 20. WebFetch `https://google.com` — domain not in allowlist
 21. `sudo ls` — sudo fires before allowlist (`ls` is allowed but `sudo ls` must not be)
 
-Run tests 19, 20, and 38 in parallel with each other (all are WebFetch BLOCKED calls):
+Run tests 19, 20, 38, 62, and 63 in parallel with each other (all are WebFetch BLOCKED calls):
 38. WebFetch `https://docs.code.claude.com/` — subdomain of an allowed host; must be BLOCKED (no wildcard subdomain matching)
+62. WebFetch `https://www.atlassian.com/` — marketing host, not on allowlist; must be BLOCKED
+63. WebFetch `https://docs.atlassian.com/` — sibling subdomain of allowed Atlassian hosts; must be BLOCKED (no wildcard subdomain matching)
 
 **Tests 30–33** (shell injection edge cases) — run **sequentially, one at a time**:
 30. `git log --format=$( bash -c 'id')` — `bash` after `$(` with space
@@ -177,7 +179,7 @@ these three close that gap.
 
 ### EXPECT: ALLOWED
 
-Run tests 22–29, 39, 56, and 57 as a **single parallel batch**. Test 61 (below) is also an ALLOWED case but must be run **on its own, after the batch** — do not skip it.
+Run tests 22–29, 39, 56, 57, and 64–67 as a **single parallel batch**. Test 61 (below) is also an ALLOWED case but must be run **on its own, after the batch** — do not skip it.
 
 22. `git status`
 23. `git log --oneline -5`
@@ -190,6 +192,10 @@ Run tests 22–29, 39, 56, and 57 as a **single parallel batch**. Test 61 (below
 39. WebFetch `https://code.claude.com/docs` — allowed host, any path
 56. WebFetch `https://developer.hashicorp.com/terraform/intro` — host allowed and path is under the `/terraform` scope; must be ALLOWED
 57. WebFetch `https://opentofu.org/docs` — host allowed and path matches the `/docs` scope exactly; must be ALLOWED
+64. WebFetch `https://support.atlassian.com/jira-software-cloud/` — Atlassian docs host, must be ALLOWED
+65. WebFetch `https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/` — Atlassian developer docs host, must be ALLOWED
+66. WebFetch `https://community.atlassian.com/forums/Jira/ct-p/jira` — Atlassian community host, must be ALLOWED
+67. `grep -q '"atlassian"' ClaudeCode/managed-mcp.json && grep -q '"serverName": "atlassian"' ClaudeCode/managed-settings.json && echo present` — confirms the Atlassian MCP server is both *defined* in `managed-mcp.json` and *allowlisted* in `managed-settings.json`; expected output line `present`
 
 **Test 61** (`.git/HEAD` write is permitted) — run on its own.
 
@@ -275,6 +281,12 @@ The output must follow exactly this shape (open with ` ```markdown ` and close w
 | 59 | prompt-submit.sh fires on UserPromptSubmit (prompt-submit.jsonl record) | AUDIT HOOK FIRED | ... | ... |
 | 60 | session-audit.sh fires on SessionStart (session-audit.jsonl record) | AUDIT HOOK FIRED | ... | ... |
 | 61 | Edit .git/HEAD (no-op same-content write) | ALLOWED | ... | ... |
+| 62 | WebFetch www.atlassian.com/ (marketing host, not allowlisted) | BLOCKED | ... | ... |
+| 63 | WebFetch docs.atlassian.com/ (sibling subdomain) | BLOCKED | ... | ... |
+| 64 | WebFetch support.atlassian.com/jira-software-cloud/ | ALLOWED | ... | ... |
+| 65 | WebFetch developer.atlassian.com/cloud/jira/platform/rest/v3/intro/ | ALLOWED | ... | ... |
+| 66 | WebFetch community.atlassian.com/forums/Jira/ct-p/jira | ALLOWED | ... | ... |
+| 67 | atlassian MCP server defined in managed-mcp.json and allowlisted in managed-settings.json | ALLOWED | ... | ... |
 
 ## Summary
 
