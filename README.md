@@ -306,7 +306,7 @@ This is **Phase 0** of the audit logging rollout. The local JSONL hooks above ar
 The bucket and writer IAM go in MHI's dedicated logging / security account (Log Archive pattern), not a workload account, so a compromised workload account cannot tamper with or delete the audit trail. All commands assume the AWS CLI is configured with an admin profile for **that** account and `eu-west-2` (London) as the region.
 
 ```bash
-export AWS_REGION=eu-west-2          # UK region — required for GDPR data residency (see below)
+export AWS_REGION=eu-west-2          # UK region, required for GDPR data residency (see below)
 export BUCKET=mhi-claude-audit       # must be globally unique; change if taken
 
 aws sts get-caller-identity          # confirm you are in the logging/security account before creating anything
@@ -547,7 +547,7 @@ aws sso-admin put-inline-policy-to-permission-set \
 
 ### 3.2 Assign the permission set to a readers group
 
-Create (or reuse) a group in your identity source — e.g. `claude-audit-readers` — and assign the permission set to it for the target account:
+Create (or reuse) a group in your identity source (e.g. `claude-audit-readers`) and assign the permission set to it for the target account:
 
 ```bash
 aws sso-admin create-account-assignment \
@@ -559,7 +559,7 @@ aws sso-admin create-account-assignment \
   --target-id "<account-id>"
 ```
 
-Add or remove investigators by editing membership of `claude-audit-readers` in your identity source — no AWS changes needed per person.
+Add or remove investigators by editing membership of `claude-audit-readers` in your identity source. No AWS changes are needed per person.
 
 ### 3.3 Reader workflow
 
@@ -598,15 +598,15 @@ Validated against the live bucket on 2026-06-24 (account `286308815827`, `eu-wes
 ```bash
 aws configure --profile claude-writer        # writer AccessKeyId + Secret, region eu-west-2
 
-# SHOULD SUCCEED — also confirms PutObject-only works against the Object Lock bucket
+# SHOULD SUCCEED. Also confirms PutObject-only works against the Object Lock bucket
 echo test | gzip | aws s3 cp - \
   s3://mhi-claude-audit/claude-audit/year=2026/month=06/day=24/host=probe/test/probe.log.gz \
   --content-encoding gzip --profile claude-writer
 
-# SHOULD AccessDenied — no list/read
+# SHOULD AccessDenied: no list/read
 aws s3 ls s3://mhi-claude-audit/ --profile claude-writer
 
-# SHOULD AccessDenied — no delete (Object Lock would hold anyway)
+# SHOULD AccessDenied: no delete (Object Lock would hold anyway)
 aws s3 rm s3://mhi-claude-audit/claude-audit/year=2026/month=06/day=24/host=probe/test/probe.log.gz \
   --profile claude-writer
 ```
@@ -654,6 +654,6 @@ aws budgets create-budget --account-id <acct> --budget '{
 }'
 ```
 
-£20/month is well above the expected ~£1–2/month for a fleet of this size. Any alert means something is wrong — investigate before paying it.
+£20/month is well above the expected ~£1–2/month for a fleet of this size. Any alert means something is wrong, so investigate before paying it.
 
 > The cost filter keys on a `Project=claude-code-audit` tag. The Terraform applied that tag automatically via `default_tags`; in the manual flow there's no provider to do it for you, so the budget filter is best-effort. When you convert to IaC, restore the `default_tags` block (`Project=claude-code-audit`, `Owner=security`, `ManagedBy=terraform`) so the filter becomes reliable.

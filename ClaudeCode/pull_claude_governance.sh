@@ -24,7 +24,7 @@ echo "Cloning AI_Technical_Controls repository..."
 rm -rf "$ai_governance_repo_dir"
 # Clone main. Integrity is enforced at the source: CODEOWNERS and branch protection
 # require two-person approval for every merge, so a tampered main implies the
-# security team itself was compromised — client-side tag pinning would not add
+# security team itself was compromised, and client-side tag pinning would not add
 # meaningful protection against that threat.
 git clone --quiet --depth 1 https://github.com/MentalHealthInnovations/AI_Technical_Controls "$ai_governance_repo_dir"
 
