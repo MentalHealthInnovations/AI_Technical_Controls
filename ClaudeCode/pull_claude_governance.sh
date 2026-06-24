@@ -13,11 +13,12 @@ set -e
 
 claude_config_dir="/Library/Application Support/ClaudeCode/"
 claude_hooks_dir="/opt/claude/hooks/"
+claude_bin_dir="/opt/claude/bin/"
 ai_governance_repo_dir="/tmp/AI_Technical_Controls"
 script_dest="/usr/local/bin/pull_claude_governance.sh"
 
 echo "Creating directories..."
-mkdir -p "$claude_config_dir" "$claude_hooks_dir"
+mkdir -p "$claude_config_dir" "$claude_hooks_dir" "$claude_bin_dir"
 
 echo "Cloning AI_Technical_Controls repository..."
 rm -rf "$ai_governance_repo_dir"
@@ -52,6 +53,14 @@ echo "Copying hooks..."
 # from the repo. Hidden files (e.g. .DS_Store) are left alone.
 find "$claude_hooks_dir" -mindepth 1 -not -path '*/.*' -delete 2>/dev/null || true
 cp -R "$ai_governance_repo_dir"/ClaudeCode/opt/claude/hooks/. "$claude_hooks_dir"
+
+echo "Copying audit-log uploader..."
+# Same stale-file cleanup + recursive copy pattern as the hooks above. The uploader
+# (upload-audit-logs.sh) is run by its own daily root cron; the AWS credentials it uses
+# are written once by InstallClaudeGovernance.sh, not here.
+find "$claude_bin_dir" -mindepth 1 -not -path '*/.*' -delete 2>/dev/null || true
+cp -R "$ai_governance_repo_dir"/ClaudeCode/opt/claude/bin/. "$claude_bin_dir"
+chmod +x "$claude_bin_dir"/*.sh 2>/dev/null || true
 
 echo "Writing version stamp..."
 # Record the deployed SHA so fleet operators can verify which policy version is

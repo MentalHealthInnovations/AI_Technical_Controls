@@ -19,6 +19,16 @@
 #   $5         — Jamf custom trigger for a policy that installs Xcode Command Line
 #                Tools. Required if CLT is not already installed; this script
 #                invokes `jamf policy -event "$5"` to install it.
+#   $6         — Jamf custom trigger for a policy that installs the AWS CLI
+#                (trigger name: installAwsCli). Only used when audit-log S3 upload
+#                is being configured (see $7/$8); this script invokes
+#                `jamf policy -event "$6"` if the `aws` binary is missing.
+#   $7, $8     — Access key id and secret access key for the fleet-wide write-only
+#                S3 audit-log writer (IAM user `claude-audit-writer`). When both are
+#                supplied, this script installs the AWS CLI (via $6 if needed),
+#                writes the credentials to /var/root/.aws/ (0600), and schedules a
+#                daily upload cron. When either is empty, audit-log upload is skipped
+#                entirely and the core governance install is unaffected.
 #
 # Dependencies (both are required at runtime; both are installed via Jamf
 # policy triggers passed as $4 and $5 if missing — no Homebrew or softwareupdate
@@ -27,11 +37,20 @@
 #   - jq (used at runtime by the governance hooks to parse hook payloads and the
 #     domain allowlist; missing jq fails closed and blocks every Bash, Read, and
 #     WebFetch call).
+#
+# Optional add-on (configured only when $7/$8 are supplied):
+#   - AWS CLI (used by the daily upload-audit-logs.sh cron to ship the hook audit
+#     logs to S3). The writer credential is write-only (s3:PutObject under the log
+#     prefix); a leak cannot read or delete logs. Failure to set this up logs a
+#     warning but never blocks the governance install.
 
 set -e
 
 JAMF_JQ_TRIGGER="${4:-}"
 JAMF_XCODE_CLT_TRIGGER="${5:-}"
+JAMF_AWS_CLI_TRIGGER="${6:-}"
+AWS_AUDIT_ACCESS_KEY_ID="${7:-}"
+AWS_AUDIT_SECRET_ACCESS_KEY="${8:-}"
 
 # trigger_jamf_install RESOURCE TRIGGER VERIFY_CMD [VERIFY_ARGS...]
 # Fires a Jamf policy by its custom trigger and verifies that the resource is
@@ -61,6 +80,56 @@ trigger_jamf_install() {
     return 1
   fi
   echo "$resource installed."
+}
+
+# setup_audit_log_upload — optional add-on, configured only when the writer
+# credentials are supplied as Jamf params $7/$8. Installs the AWS CLI (via the
+# installAwsCli trigger, $6, if `aws` is missing), writes the write-only credential
+# to /var/root/.aws/ (0600), and schedules a daily upload cron. Best-effort: every
+# failure path returns non-zero so the caller can warn and continue. Log shipping is
+# observability, not a security control, so it must never block the governance install.
+setup_audit_log_upload() {
+  if [[ -z "$AWS_AUDIT_ACCESS_KEY_ID" || -z "$AWS_AUDIT_SECRET_ACCESS_KEY" ]]; then
+    echo "Audit-log S3 upload: no writer credentials supplied (params \$7/\$8); skipping."
+    return 0
+  fi
+
+  # AWS CLI is net-new on the fleet; install it via the installAwsCli Jamf policy.
+  if ! command -v aws &>/dev/null; then
+    trigger_jamf_install "AWS CLI" "$JAMF_AWS_CLI_TRIGGER" command -v aws || {
+      echo "Audit-log S3 upload: AWS CLI install failed; upload not configured." >&2
+      return 1
+    }
+  else
+    echo "AWS CLI is already installed."
+  fi
+
+  # Write the write-only credential to root's AWS config with restrictive perms.
+  # printf is a shell builtin, so the secret is not exposed as a process argument.
+  local aws_dir="/var/root/.aws"
+  local old_umask; old_umask="$(umask)"
+  umask 177
+  if ! install -d -m 700 "$aws_dir"; then
+    umask "$old_umask"
+    echo "Audit-log S3 upload: could not create $aws_dir; upload not configured." >&2
+    return 1
+  fi
+  printf '[default]\naws_access_key_id = %s\naws_secret_access_key = %s\n' \
+    "$AWS_AUDIT_ACCESS_KEY_ID" "$AWS_AUDIT_SECRET_ACCESS_KEY" > "$aws_dir/credentials"
+  printf '[default]\nregion = eu-west-2\noutput = json\n' > "$aws_dir/config"
+  chmod 600 "$aws_dir/credentials" "$aws_dir/config"
+  umask "$old_umask"
+  echo "Wrote write-only audit-log uploader credentials to $aws_dir/credentials."
+
+  # Daily upload cron, separate from the governance-pull cron. The uploader itself is
+  # deployed to /opt/claude/bin/ by pull_claude_governance.sh and self-updates.
+  local uploader="/opt/claude/bin/upload-audit-logs.sh"
+  local upload_marker="# Added by MHI Claude governance script - audit log S3 upload."
+  local upload_cron="30 12 * * * $uploader $upload_marker"
+  local current; current="$(sudo crontab -l 2>/dev/null || true)"
+  current="$(echo "$current" | grep -vF "$upload_marker")"
+  (echo "$current" ; echo "$upload_cron") | sudo crontab -
+  echo "Scheduled daily audit-log upload cron."
 }
 
 if ! xcode-select -p &>/dev/null; then
@@ -133,5 +202,9 @@ existing_crontab=$(sudo crontab -l 2>/dev/null || true)
 updated_crontab=$(echo "$existing_crontab" | grep -vF "$cron_marker")
 echo "Adding crontab to update governance files daily."
 (echo "$updated_crontab" ; echo "$new_crontab") | sudo crontab -
+
+# Optional: configure audit-log S3 upload when writer credentials were supplied.
+# Best-effort — a failure here must not fail the governance install.
+setup_audit_log_upload || echo "Audit-log S3 upload setup did not complete; governance install is unaffected." >&2
 
 echo "Script completed successfully."
