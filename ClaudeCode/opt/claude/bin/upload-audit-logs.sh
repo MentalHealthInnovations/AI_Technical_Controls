@@ -30,15 +30,26 @@ STATE_DIR="/var/root/.claude-audit-state"
 # Set the paths explicitly so the uploader never depends on the cron environment's $HOME.
 export AWS_SHARED_CREDENTIALS_FILE="/var/root/.aws/credentials"
 export AWS_CONFIG_FILE="/var/root/.aws/config"
-# The official AWS CLI installer symlinks the binary into /usr/local/bin; cron's minimal
-# PATH may not include it.
-export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+
+# Resolve the aws binary explicitly. The installAwsCli policy installs the CLI via
+# Homebrew for the console user, so the binary lives under the Homebrew prefix
+# (/opt/homebrew/bin on Apple Silicon, /usr/local/bin on Intel). A root cron's minimal
+# PATH does not include /opt/homebrew/bin, so check the standard locations directly.
+find_aws() {
+  local cand
+  if cand="$(command -v aws 2>/dev/null)"; then printf '%s\n' "$cand"; return 0; fi
+  for cand in /opt/homebrew/bin/aws /usr/local/bin/aws; do
+    [[ -x "$cand" ]] && { printf '%s\n' "$cand"; return 0; }
+  done
+  return 1
+}
 
 # The six governance hook logs we ship. Anything else under ~/.claude/debug/ is excluded.
 HOOK_LOGS=(bash-policy webfetch-policy output-redact prompt-submit session-audit tool-audit)
 
-if ! command -v aws >/dev/null 2>&1; then
-  echo "upload-audit-logs: aws CLI not found on PATH; nothing uploaded." >&2
+if ! AWS_BIN="$(find_aws)"; then
+  echo "upload-audit-logs: aws CLI not found (checked PATH, /opt/homebrew/bin, /usr/local/bin); nothing uploaded." >&2
   exit 0
 fi
 if [[ ! -r "$AWS_SHARED_CREDENTIALS_FILE" ]]; then
@@ -82,7 +93,7 @@ for debug_dir in /Users/*/.claude/debug; do
     key="$PREFIX/$day/host=$host/$hook/${epoch}-${offset}-${RANDOM}.log.gz"
 
     if tail -c "+$((offset + 1))" "$f" | gzip -c \
-         | aws s3 cp - "s3://$BUCKET/$key" --region "$REGION" --content-encoding gzip >/dev/null 2>&1; then
+         | "$AWS_BIN" s3 cp - "s3://$BUCKET/$key" --region "$REGION" --content-encoding gzip >/dev/null 2>&1; then
       # Advance the offset only on a confirmed upload; a failure retries next run.
       echo "$size" > "$off_file"
       echo "upload-audit-logs: uploaded ${user}/${hook} bytes ${offset}-${size} -> s3://${BUCKET}/${key}"

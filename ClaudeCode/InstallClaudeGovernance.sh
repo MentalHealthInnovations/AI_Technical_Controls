@@ -82,6 +82,16 @@ trigger_jamf_install() {
   echo "$resource installed."
 }
 
+# aws_present: true if the AWS CLI is installed in any standard location. The
+# installAwsCli policy installs the CLI via Homebrew for the console user, whose
+# prefix (/opt/homebrew/bin on Apple Silicon, /usr/local/bin on Intel) is not on
+# root's non-interactive PATH, so a bare `command -v aws` would miss a brew install
+# and wrongly conclude the post-install verify failed. Check the prefixes directly.
+aws_present() {
+  command -v aws &>/dev/null && return 0
+  [[ -x /opt/homebrew/bin/aws || -x /usr/local/bin/aws ]]
+}
+
 # setup_audit_log_upload: optional add-on, configured only when the writer
 # credentials are supplied as Jamf params $7/$8. Installs the AWS CLI (via the
 # installAwsCli trigger, $6, if `aws` is missing), writes the write-only credential
@@ -95,8 +105,8 @@ setup_audit_log_upload() {
   fi
 
   # AWS CLI is net-new on the fleet; install it via the installAwsCli Jamf policy.
-  if ! command -v aws &>/dev/null; then
-    trigger_jamf_install "AWS CLI" "$JAMF_AWS_CLI_TRIGGER" command -v aws || {
+  if ! aws_present; then
+    trigger_jamf_install "AWS CLI" "$JAMF_AWS_CLI_TRIGGER" aws_present || {
       echo "Audit-log S3 upload: AWS CLI install failed; upload not configured." >&2
       return 1
     }
