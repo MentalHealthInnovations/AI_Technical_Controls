@@ -32,24 +32,15 @@ export AWS_SHARED_CREDENTIALS_FILE="/var/root/.aws/credentials"
 export AWS_CONFIG_FILE="/var/root/.aws/config"
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 
-# Resolve the aws binary explicitly. The installAwsCli policy installs the CLI via
-# Homebrew for the console user, so the binary lives under the Homebrew prefix
-# (/opt/homebrew/bin on Apple Silicon, /usr/local/bin on Intel). A root cron's minimal
-# PATH does not include /opt/homebrew/bin, so check the standard locations directly.
-find_aws() {
-  local cand
-  if cand="$(command -v aws 2>/dev/null)"; then printf '%s\n' "$cand"; return 0; fi
-  for cand in /opt/homebrew/bin/aws /usr/local/bin/aws; do
-    [[ -x "$cand" ]] && { printf '%s\n' "$cand"; return 0; }
-  done
-  return 1
-}
-
 # The six governance hook logs we ship. Anything else under ~/.claude/debug/ is excluded.
 HOOK_LOGS=(bash-policy webfetch-policy output-redact prompt-submit session-audit tool-audit)
 
-if ! AWS_BIN="$(find_aws)"; then
-  echo "upload-audit-logs: aws CLI not found (checked PATH, /opt/homebrew/bin, /usr/local/bin); nothing uploaded." >&2
+# Resolve the aws binary. The installAwsCli policy installs the CLI via Homebrew for the
+# console user, so the binary lives under the Homebrew prefix (/opt/homebrew/bin on Apple
+# Silicon, /usr/local/bin on Intel). A root cron's default PATH omits those, which is why
+# PATH is set explicitly above; command -v then finds the CLI wherever it was installed.
+if ! AWS_BIN="$(command -v aws 2>/dev/null)"; then
+  echo "upload-audit-logs: aws CLI not found on PATH ($PATH); nothing uploaded." >&2
   exit 0
 fi
 if [[ ! -r "$AWS_SHARED_CREDENTIALS_FILE" ]]; then
