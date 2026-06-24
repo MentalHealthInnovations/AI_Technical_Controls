@@ -82,22 +82,18 @@ trigger_jamf_install() {
   echo "$resource installed."
 }
 
-# aws_present: true if the AWS CLI is installed in any standard location. The
-# installAwsCli policy installs the CLI via Homebrew for the console user, whose
-# prefix (/opt/homebrew/bin on Apple Silicon, /usr/local/bin on Intel) is not on
-# root's non-interactive PATH, so a bare `command -v aws` would miss a brew install
-# and wrongly conclude the post-install verify failed. Check the prefixes directly.
+# aws_present: true if the AWS CLI is on PATH or at a Homebrew prefix. installAwsCli
+# installs it via Homebrew, whose prefix isn't on root's non-interactive PATH, so
+# `command -v aws` alone would miss it (and fail the verify). Check the prefixes too.
 aws_present() {
   command -v aws &>/dev/null && return 0
   [[ -x /opt/homebrew/bin/aws || -x /usr/local/bin/aws ]]
 }
 
-# setup_audit_log_upload: optional add-on, configured only when the writer
-# credentials are supplied as Jamf params $7/$8. Installs the AWS CLI (via the
-# installAwsCli trigger, $6, if `aws` is missing), writes the write-only credential
-# to /var/root/.aws/ (0600), and schedules a daily upload cron. Best-effort: every
-# failure path returns non-zero so the caller can warn and continue. Log shipping is
-# observability, not a security control, so it must never block the governance install.
+# setup_audit_log_upload: optional add-on, run only when writer credentials are supplied
+# as Jamf params $7/$8. Installs the AWS CLI (via $6 if missing), writes the write-only
+# credential to /var/root/.aws/ (0600), and schedules a daily upload cron. Best-effort:
+# failures return non-zero and the caller warns and continues, never blocking the install.
 setup_audit_log_upload() {
   if [[ -z "$AWS_AUDIT_ACCESS_KEY_ID" || -z "$AWS_AUDIT_SECRET_ACCESS_KEY" ]]; then
     echo "Audit-log S3 upload: no writer credentials supplied (params \$7/\$8); skipping."

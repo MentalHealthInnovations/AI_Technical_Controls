@@ -35,10 +35,8 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PA
 # The six governance hook logs we ship. Anything else under ~/.claude/debug/ is excluded.
 HOOK_LOGS=(bash-policy webfetch-policy output-redact prompt-submit session-audit tool-audit)
 
-# Resolve the aws binary. The installAwsCli policy installs the CLI via Homebrew for the
-# console user, so the binary lives under the Homebrew prefix (/opt/homebrew/bin on Apple
-# Silicon, /usr/local/bin on Intel). A root cron's default PATH omits those, which is why
-# PATH is set explicitly above; command -v then finds the CLI wherever it was installed.
+# Resolve the aws binary. PATH is set above to include the Homebrew prefixes where
+# installAwsCli puts the CLI, since root's cron PATH omits them; command -v then finds it.
 if ! AWS_BIN="$(command -v aws 2>/dev/null)"; then
   echo "upload-audit-logs: aws CLI not found on PATH ($PATH); nothing uploaded." >&2
   exit 0
@@ -83,7 +81,9 @@ for debug_dir in /Users/*/.claude/debug; do
     # local username out of the key path; it stays inside each record instead).
     key="$PREFIX/$day/host=$host/$hook/${epoch}-${offset}-${RANDOM}.log.gz"
 
-    if tail -c "+$((offset + 1))" "$f" | gzip -c \
+    # Cap the read at the measured size: the offset only advances to `size`, so a
+    # concurrent append past it would otherwise be re-shipped next run. -> [offset, size)
+    if tail -c "+$((offset + 1))" "$f" | head -c "$((size - offset))" | gzip -c \
          | "$AWS_BIN" s3 cp - "s3://$BUCKET/$key" --region "$REGION" --content-encoding gzip >/dev/null 2>&1; then
       # Advance the offset only on a confirmed upload; a failure retries next run.
       echo "$size" > "$off_file"
