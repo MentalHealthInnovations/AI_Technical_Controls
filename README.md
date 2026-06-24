@@ -17,6 +17,7 @@ A layered configuration system that makes Claude Code safer to use at scale. The
 | `ClaudeCode/opt/claude/hooks/session-audit.sh` | Audit-only hook for `SessionStart`, `Stop`, `SessionEnd` |
 | `ClaudeCode/opt/claude/hooks/lib/audit-log.sh` | Shared helper: appends a JSONL record per invocation |
 | `ClaudeCode/opt/claude/hooks/lib/redact.sh` | Shared secret-redaction patterns (output + prompt) |
+| `ClaudeCode/opt/claude/bin/upload-audit-logs.sh` | Daily uploader: ships the six hook logs to the audit S3 bucket (see appendix) |
 | `ClaudeCode/pull_claude_governance.sh` | Pulls and deploys policy files; self-updates each run |
 | `ClaudeCode/InstallClaudeGovernance.sh` | One-time macOS bootstrap for `pull_claude_governance.sh` |
 | [Appendix: AWS audit-log setup](#appendix-aws-audit-log-setup) | Phase 0 manual AWS setup for the audit-log S3 bucket + IAM (IaC later) |
@@ -34,8 +35,12 @@ The install script installs both dependencies on demand via Jamf custom triggers
 |---|---|---|
 | `$4` | `jq` | `command -v jq` fails. The script runs `jamf policy -event "$4"`. |
 | `$5` | Xcode Command Line Tools | `xcode-select -p` fails. The script runs `jamf policy -event "$5"`. |
+| `$6` | AWS CLI | Audit-log S3 upload is being configured and `aws` is missing. The script runs `jamf policy -event "$6"` (trigger `installAwsCli`). Optional. |
+| `$7`, `$8` | `claude-audit-writer` access key id / secret | Both supplied to enable audit-log S3 upload. Optional; when either is empty, upload is skipped and governance install is unaffected. |
 
 Configure the script in Jamf with the custom triggers of your existing jq and CLT install policies as parameters 4 and 5. Both dependencies are runtime-critical — `jq` parses every hook payload and reads the WebFetch allowlist; CLT provides `git` and a C compiler that this script needs to install other governance components. If jq is later removed from a machine, the hooks fail closed (preserving security) and block every Bash, WebFetch, and Read call until it's reinstalled.
+
+Parameters 6–8 are optional and configure the audit-log S3 upload add-on (see the [AWS audit-log appendix](#appendix-aws-audit-log-setup)). They are best-effort: a failure to set up upload logs a warning but never blocks the governance install.
 
 ### Run
 
@@ -45,7 +50,7 @@ Run `InstallClaudeGovernance.sh` once as root on each managed machine. It:
 2. Installs `/usr/local/bin/update_ai_governance`, a setuid wrapper so any local user can trigger a refresh without sudo.
 3. Schedules a daily cron (12:00) to keep policies current.
 
-Each run of `pull_claude_governance.sh` deploys `managed-settings.json` and `CLAUDE.md` to `/Library/Application Support/ClaudeCode/`, and hook scripts to `/opt/claude/hooks/`.
+Each run of `pull_claude_governance.sh` deploys `managed-settings.json` and `CLAUDE.md` to `/Library/Application Support/ClaudeCode/`, hook scripts to `/opt/claude/hooks/`, and the audit-log uploader to `/opt/claude/bin/`.
 
 ## Settings hierarchy
 
@@ -101,7 +106,7 @@ Every hook writes one structured JSON Lines record per invocation to `~/.claude/
 
 ### Retention
 
-All logs are currently kept on device indefinitely. Once centralised logging is set up, these files will be retained for 2 weeks locally, and for 365 days in AWS.
+Logs are written on device, rotated locally by `newsyslog` (see [Log rotation](#log-rotation)), and shipped daily to the `mhi-claude-audit` S3 bucket, where they are retained for 395 days under Object Lock (see the [AWS audit-log appendix](#appendix-aws-audit-log-setup)).
 
 ### Record shape
 
@@ -132,7 +137,7 @@ Plus hook-specific fields. Examples:
 
 Review logs for repeated denies on the same command (legitimate use case to allow, or a workaround attempt), unexpected redact hits (project storing secrets badly), or repeated WebFetch denies on the same domain (dependency on an unapproved service).
 
-Logs are local by default. To aggregate, ship the six JSONL paths to your SIEM via Jamf/osquery/log forwarder. They are append-only and safe to tail or rotate.
+The six logs are append-only and safe to tail or rotate. The governance pack ships them to S3 daily (see the [AWS audit-log appendix](#appendix-aws-audit-log-setup)); to forward them elsewhere as well (a SIEM, osquery), tail the same six paths.
 
 ### Log rotation
 
@@ -281,39 +286,46 @@ Pre-commit is bypassable with `git commit --no-verify`, so CI is the real gate; 
 
 # Appendix: AWS audit-log setup
 
-Manual AWS setup for the Claude Code audit log pipeline. Provisions the S3 bucket Vector ships logs to, plus the per-host writer IAM users and the read-only investigation access.
+Manual AWS setup for the Claude Code audit log pipeline. Provisions the S3 bucket the devices ship logs to, one fleet-wide write-only writer identity, and the read-only investigation access.
 
-This is **Phase 0** of the audit logging rollout — the local JSONL hooks above are the source of the records; this appendix covers shipping them off-box.
+This is **Phase 0** of the audit logging rollout. The local JSONL hooks above are the source of the records; this appendix covers shipping them off-box. The device side is already implemented: `ClaudeCode/opt/claude/bin/upload-audit-logs.sh` runs from a daily root cron and uploads new log bytes with `aws s3 cp` (no Vector, no daemon). See [Device side: the uploader](#device-side-the-uploader).
 
-> **Status: manual setup.** This phase is delivered by hand via the AWS CLI / console steps below. It will be converted to infrastructure-as-code (Terraform) at a later date. Until then, treat this section as the source of truth for what exists in the account, and make changes by following these steps — not ad-hoc in the console — so the eventual IaC import is clean.
+**Upload identity is deliberately simple.** Uploads are not cryptographically attributed to a device. Attribution comes from the `user` and `host` fields stamped into every record (see [Record shape](#record-shape)), so one fleet-wide write-only credential is enough. The trade-offs, and the upgrade path if per-device crypto identity is ever needed, are in [Identity model](#identity-model-and-upgrade-path).
+
+> **Status: manual setup.** The AWS side is delivered by hand via the AWS CLI steps below. It will be converted to infrastructure-as-code (Terraform) at a later date. Until then, treat this section as the source of truth for what exists in the account, and make changes by following these steps, not ad-hoc in the console, so the eventual IaC import is clean.
 
 ## What you create
 
 | Resource | Purpose |
 |---|---|
-| S3 bucket `mhi-claude-audit` | The log bucket. UK region. SSE-S3. Lifecycle policy. TLS-only. |
+| S3 bucket `mhi-claude-audit` | The log bucket. UK region. SSE-S3. Versioning ON. Object Lock (GOVERNANCE, 395d). Lifecycle policy. TLS-only. |
 | Bucket lifecycle rule `claude-audit-tiering` | 30d hot → 120d IA → 395d delete |
-| IAM user `vector-<host>` (one per Mac) | Per-machine writer, scoped to write under `host=<host>/` only. **Phase 0 only — see [Target: IAM Roles Anywhere for writers](#target-iam-roles-anywhere-for-writers).** |
+| IAM user `claude-audit-writer` (one, fleet-wide) | Single write-only writer. `s3:PutObject` under `claude-audit/` only. No read, no list, no delete. |
 | SSO permission set `claude-audit-reader` | Read-only access for ad-hoc DuckDB investigation, assigned to a readers group in IAM Identity Center |
 
-All commands assume the AWS CLI is configured with an admin profile for the target account and `eu-west-2` (London) as the region. Adjust `--region` / `--profile` to taste.
+The bucket and writer IAM go in MHI's dedicated logging / security account (Log Archive pattern), not a workload account, so a compromised workload account cannot tamper with or delete the audit trail. All commands assume the AWS CLI is configured with an admin profile for **that** account and `eu-west-2` (London) as the region.
 
 ```bash
 export AWS_REGION=eu-west-2          # UK region — required for GDPR data residency (see below)
 export BUCKET=mhi-claude-audit       # must be globally unique; change if taken
+
+aws sts get-caller-identity          # confirm you are in the logging/security account before creating anything
 ```
 
 ## 1. Create and harden the S3 bucket
 
-### 1.1 Create the bucket
+### 1.1 Create the bucket (with Object Lock enabled)
 
-**Region is pinned to the UK (`eu-west-2`) for UK GDPR data residency.** The logs contain prompt text and command lines, which can include personal data. Do not create this bucket in a non-EU region without DPO sign-off — the region is part of the lawful-basis assessment.
+**Region is pinned to the UK (`eu-west-2`) for UK GDPR data residency.** The logs contain prompt text and command lines, which can include personal data. Omitting `LocationConstraint` lands the bucket in `us-east-1` (US); do not create this bucket in a non-EU region without DPO sign-off, the region is part of the lawful-basis assessment.
+
+`--object-lock-enabled-for-bucket` must be set at creation. Object Lock requires versioning and, once enabled, cannot be disabled, so this is a create-time, effectively-permanent decision. Enabling it at creation also turns versioning on automatically.
 
 ```bash
 aws s3api create-bucket \
   --bucket "$BUCKET" \
   --region "$AWS_REGION" \
-  --create-bucket-configuration LocationConstraint="$AWS_REGION"
+  --create-bucket-configuration LocationConstraint="$AWS_REGION" \
+  --object-lock-enabled-for-bucket
 ```
 
 ### 1.2 Block all public access (account-plane defence in depth)
@@ -327,11 +339,11 @@ aws s3api put-public-access-block \
     BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
 ```
 
-> Apply this **before** the bucket policy in step 1.5, otherwise the policy attempt can race the account-level restriction.
+> Apply this **before** the bucket policy in step 1.7, otherwise the policy attempt can race the account-level restriction.
 
 ### 1.3 Enable encryption at rest (SSE-S3 / AES-256)
 
-SSE-S3 is sufficient for Phase A. Move to SSE-KMS only if a compliance requirement asks for customer-managed key control over the logs at rest.
+SSE-S3 is sufficient for Phase 0. Move to SSE-KMS only if a compliance requirement asks for customer-managed key control over the logs at rest.
 
 ```bash
 aws s3api put-bucket-encryption \
@@ -344,15 +356,30 @@ aws s3api put-bucket-encryption \
   }'
 ```
 
-### 1.4 Leave versioning OFF (intentional)
+### 1.4 Versioning is ON (required by Object Lock)
 
-Do **not** enable bucket versioning. Audit records are append-only per record, not per file — Vector writes one new gzipped blob per batch and never overwrites. Versioning would multiply storage cost for no benefit. New buckets default to versioning disabled, so there is nothing to do here; this note exists so nobody "helpfully" turns it on later.
+Versioning was enabled automatically by `--object-lock-enabled-for-bucket` in step 1.1. Confirm it:
 
-### 1.5 Lifecycle policy (tiering + expiry)
+```bash
+aws s3api get-bucket-versioning --bucket "$BUCKET"   # expect: Status = Enabled
+```
+
+The uploader writes immutable gzipped deltas with unique keys and never reuses a key, so versioning adds negligible storage in normal operation. Its purpose here is to satisfy Object Lock (step 1.8), which gives the audit trail WORM protection. The lifecycle rule (step 1.6) expires noncurrent versions too, so cost stays bounded.
+
+### 1.5 Confirm Object Ownership is Bucket owner enforced (default)
+
+New buckets default to **Bucket owner enforced**, which disables ACLs. That is what we want: access is governed by IAM/bucket policy only, and the writer policy in section 2 grants no ACL permission. With ACLs disabled, any `PutObject` that specifies an ACL is rejected with `400 AccessControlListNotSupported`; the uploader sends none. Confirm the default:
+
+```bash
+aws s3api get-bucket-ownership-controls --bucket "$BUCKET"
+# Expect: ObjectOwnership = BucketOwnerEnforced (or no controls set, the same default)
+```
+
+### 1.6 Lifecycle policy (tiering + expiry)
 
 30 days hot (Standard) → Standard-IA → Glacier Instant Retrieval → delete at 395 days.
 
-**395 days = 13 months**, the default retention for security audit telemetry. Changing the expiry requires DPO sign-off — the retention figure is part of the lawful-basis assessment. Keep retention between 90 days and 7 years.
+**395 days = 13 months**, the default retention for security audit telemetry. Changing the expiry requires DPO sign-off, the retention figure is part of the lawful-basis assessment. Keep retention between 90 days and 7 years. The current-version `Expiration` (395d) and the Object Lock default retention (step 1.8) express the same 395-day intent; keep them equal so a lifecycle delete never collides with an unexpired lock.
 
 ```bash
 aws s3api put-bucket-lifecycle-configuration \
@@ -366,14 +393,15 @@ aws s3api put-bucket-lifecycle-configuration \
         { "Days": 30,  "StorageClass": "STANDARD_IA" },
         { "Days": 120, "StorageClass": "GLACIER_IR" }
       ],
-      "Expiration": { "Days": 395 }
+      "Expiration": { "Days": 395 },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 395 }
     }]
   }'
 ```
 
-### 1.6 TLS-only bucket policy
+### 1.7 TLS-only bucket policy
 
-Belt-and-braces alongside AWS's own TLS-only endpoint default — this denies plaintext attempts at the bucket layer too, so a misconfigured client can't accidentally write logs over HTTP. Substitute your bucket ARN (`arn:aws:s3:::mhi-claude-audit`).
+Belt-and-braces alongside AWS's own TLS-only endpoint default: this denies plaintext attempts at the bucket layer too, so a misconfigured client can't accidentally write logs over HTTP. Substitute your bucket ARN (`arn:aws:s3:::mhi-claude-audit`).
 
 ```bash
 aws s3api put-bucket-policy \
@@ -394,59 +422,83 @@ aws s3api put-bucket-policy \
   }'
 ```
 
-## 2. Create a writer IAM user per managed Mac
+### 1.8 Object Lock default retention (GOVERNANCE, 395 days)
 
-Create **one IAM user per machine**, named `vector-<host>`, where `<host>` matches `hostname -s` on the machine — the same value Vector stamps into the JSONL `host` field. The user's inline policy is scoped so it can **only** write under its own `host=<host>/` partition: a leaked credential for `alice-mbp` cannot write to `bob-mbp`'s partition or read any data at all.
-
-Repeat this whole section for each host. Below, `HOST` is the short hostname.
+A GOVERNANCE-mode default retention means every uploaded object is WORM-protected for 395 days: the writer and routine admins cannot delete or overwrite logs within that window. GOVERNANCE (not COMPLIANCE) is deliberate, a break-glass role holding `s3:BypassGovernanceRetention` can still erase data if a GDPR obligation (e.g. a data-subject erasure request) requires it. COMPLIANCE mode was rejected: under it nothing, including root, can delete before expiry, which conflicts with GDPR erasure duties.
 
 ```bash
-export HOST=alice-mbp                 # must match `hostname -s` on the machine
+aws s3api put-object-lock-configuration \
+  --bucket "$BUCKET" \
+  --object-lock-configuration '{
+    "ObjectLockEnabled": "Enabled",
+    "Rule": { "DefaultRetention": { "Mode": "GOVERNANCE", "Days": 395 } }
+  }'
+```
+
+> Keep `s3:BypassGovernanceRetention` off the writer policy (section 2 grants `s3:PutObject` only) and off routine admin roles; restrict it to a named break-glass role. That is what makes the WORM guarantee meaningful: the writer physically cannot delete the audit trail.
+
+### 1.9 Tag the bucket
+
+Tags drive cost allocation (the budget filter keys on `Project`) and record ownership and data classification.
+
+```bash
+aws s3api put-bucket-tagging \
+  --bucket "$BUCKET" \
+  --tagging 'TagSet=[
+    {Key=Project,Value=claude-code-audit},
+    {Key=Owner,Value=IT and Security},
+    {Key=DataClassification,Value=audit-logs-personal-data},
+    {Key=ManagedBy,Value=manual}
+  ]'
+```
+
+## 2. Create the single write-only writer IAM user
+
+One IAM user for the whole fleet. Its inline policy allows only `s3:PutObject` under the `claude-audit/` prefix: it cannot read any object, cannot list the bucket, and cannot delete. Because attribution comes from the record contents (`user` / `host`), there is no per-host identity to provision.
+
+The object key layout the uploader writes (the host segment partitions the bucket for browsability; it is **not** a security boundary now, since the single writer may write any path under `claude-audit/`):
+
+```
+claude-audit/year=YYYY/month=MM/day=DD/host=<host>/<hook>/<epoch>-<offset>-<rand>.log.gz
 ```
 
 ### 2.1 Create the user
 
 ```bash
 aws iam create-user \
-  --user-name "vector-$HOST" \
+  --user-name claude-audit-writer \
   --path /claude-audit/ \
-  --tags Key=Hostname,Value="$HOST" Key=Role,Value=vector-writer
+  --tags Key=Role,Value=claude-audit-writer Key=Project,Value=claude-code-audit Key=Owner,Value="IT and Security" Key=ManagedBy,Value=manual
 ```
 
-### 2.2 Attach the per-host inline write policy
+### 2.2 Attach the write-only inline policy
 
-Vector writes to:
-
-```
-claude-audit/year=YYYY/month=MM/day=DD/host=<host>/<hook>/<file>.log.gz
-```
-
-The partition path contains `host=<their-hostname>`, so the resource ARN is constrained with a wildcard either side of it. **Edit the `host=alice-mbp` segment to match `$HOST`** before running.
+`s3:PutObject` only. No `s3:PutObjectAcl`: ACLs are disabled (step 1.5), so an ACL-bearing PUT would be rejected and the grant is dead weight. No read, list, or delete, so a leaked writer key cannot read other people's logs or delete anything (and Object Lock blocks deletion regardless).
 
 ```bash
 aws iam put-user-policy \
-  --user-name "vector-$HOST" \
-  --policy-name "vector-writer-$HOST" \
+  --user-name claude-audit-writer \
+  --policy-name claude-audit-writer \
   --policy-document '{
     "Version": "2012-10-17",
     "Statement": [{
-      "Sid": "WriteOwnHostPartition",
+      "Sid": "WriteOnlyAuditLogs",
       "Effect": "Allow",
-      "Action": ["s3:PutObject", "s3:PutObjectAcl"],
-      "Resource": "arn:aws:s3:::mhi-claude-audit/claude-audit/*/host=alice-mbp/*"
+      "Action": ["s3:PutObject"],
+      "Resource": "arn:aws:s3:::mhi-claude-audit/claude-audit/*"
     }]
   }'
 ```
 
+Writing to a bucket that carries a default retention configuration needs only `s3:PutObject`; retention is applied by the bucket, not the caller (validated 2026-06-24, see [Validating the write-only boundary](#validating-the-write-only-boundary)).
+
 ### 2.3 Create an access key
 
-The secret is returned **exactly once** — capture it now. Pipe straight into 1Password / your secrets manager; never redirect to a file in the repo.
+The secret is returned **exactly once**, capture it now. Store it in 1Password; never redirect it to a file in the repo. It is deployed to each device via Jamf (see [Device side: the uploader](#device-side-the-uploader), parameters `$7`/`$8`). The key is visible to whoever holds Jamf admin, which is acceptable for a write-only key.
 
 ```bash
-aws iam create-access-key --user-name "vector-$HOST"
+aws iam create-access-key --user-name claude-audit-writer
 ```
-
-Store the `AccessKeyId` + `SecretAccessKey` under that machine's 1Password entry, then inject them into the Jamf install policy's parameters 4 and 5 at install time.
 
 ## 3. Grant read-only investigation access via SSO
 
@@ -521,102 +573,72 @@ export AWS_PROFILE=claude-audit                    # DuckDB picks creds up from 
 
 No long-lived reader secrets exist, so there is nothing to commit, rotate, or revoke per person.
 
+## Device side: the uploader
+
+The uploader ships with the governance pack, so most of this is automatic.
+
+- **What it is:** `ClaudeCode/opt/claude/bin/upload-audit-logs.sh`, deployed to `/opt/claude/bin/` by `pull_claude_governance.sh` (self-updating, like the hooks) and run by a daily root cron at 12:30.
+- **What it ships:** only the six governance hook logs, from every user's `~/.claude/debug/`. It reads each file's new bytes since the last successful run (a per-`(user,hook)` byte offset under `/var/root/.claude-audit-state/`), gzips them, and uploads an immutable delta object. Growing files are never re-uploaded; nothing is overwritten or deleted, and `newsyslog` owns local retention. Claude Code's own debug output and session transcripts are never shipped (the uploader whitelists the six hook names).
+- **Credentials:** the single write-only key at `/var/root/.aws/credentials` (mode 0600), written once by `InstallClaudeGovernance.sh`. The uploader sets `AWS_SHARED_CREDENTIALS_FILE` / `AWS_CONFIG_FILE` explicitly, so it does not depend on the cron environment's `$HOME`.
+
+To enable it on a machine, supply three parameters to the Jamf install policy (alongside the jq/CLT triggers `$4`/`$5`):
+
+| Parameter | Value |
+|---|---|
+| `$6` | Jamf custom trigger that installs the AWS CLI (trigger name `installAwsCli`) |
+| `$7` | `claude-audit-writer` access key id |
+| `$8` | `claude-audit-writer` secret access key |
+
+When `$7`/`$8` are absent the upload add-on is skipped entirely and the core governance install is unaffected. It is best-effort and never blocks the security controls. The AWS CLI is net-new on the fleet and is installed via the `installAwsCli` policy when missing.
+
+## Validating the write-only boundary
+
+Validated against the live bucket on 2026-06-24 (account `286308815827`, `eu-west-2`). Re-run after any change to the writer policy, using a profile configured with the **writer** credential. Do not use an admin profile, under which all of these pass trivially and prove nothing.
+
+```bash
+aws configure --profile claude-writer        # writer AccessKeyId + Secret, region eu-west-2
+
+# SHOULD SUCCEED — also confirms PutObject-only works against the Object Lock bucket
+echo test | gzip | aws s3 cp - \
+  s3://mhi-claude-audit/claude-audit/year=2026/month=06/day=24/host=probe/test/probe.log.gz \
+  --content-encoding gzip --profile claude-writer
+
+# SHOULD AccessDenied — no list/read
+aws s3 ls s3://mhi-claude-audit/ --profile claude-writer
+
+# SHOULD AccessDenied — no delete (Object Lock would hold anyway)
+aws s3 rm s3://mhi-claude-audit/claude-audit/year=2026/month=06/day=24/host=probe/test/probe.log.gz \
+  --profile claude-writer
+```
+
+If the write succeeds and both the `ls` and `rm` return `AccessDenied`, the boundary holds. Note: on a versioned bucket, `aws s3 rm` with no version id only writes a delete marker; the Object-Lock-protected version remains underneath. The probe object is itself WORM-locked for 395 days, so either accept a throwaway probe aging out via lifecycle or validate against a separate scratch bucket.
+
 ## Secrets handling
 
-This applies to the **writer** keys only — readers now use SSO (section 3) and hold no static credentials. These writer IAM access keys are long-lived static credentials; the AWS API returns each secret exactly once, at creation.
+The writer key is a single long-lived static credential; the AWS API returns its secret exactly once, at creation.
 
-- Never commit a secret. There is no state file in this phase, so nothing on disk holds them — keep it that way. Store every key directly in 1Password / a secrets manager.
-- Vector needs static keys in Phase 0 because it's a long-running daemon with no interactive session, so interactive SSO login can't vend its credentials. The target state (IAM Roles Anywhere — see [Target: IAM Roles Anywhere for writers](#target-iam-roles-anywhere-for-writers)) gives Vector short-lived credentials non-interactively and removes these static keys entirely.
-- Limit who can run `iam create-access-key` against these users to operators who already hold IAM admin in the account — key-creation access *is* credential access.
+- Never commit it. Store it in 1Password and deploy it only via Jamf, which writes it to `/var/root/.aws/credentials` (0600, root-only) on each machine.
+- It is **write-only** (`s3:PutObject` under the log prefix). A leak cannot read or delete logs; the worst case is junk writes into the prefix (storage noise), which Object Lock and the cost alert both bound.
+- Limit who can run `iam create-access-key` against the user to operators who already hold IAM admin in the logging account; key-creation access *is* credential access.
+- Rotate on a schedule or on suspected compromise: create the replacement key, push it via Jamf, confirm uploads continue, then delete the old key.
 
-When this phase is converted to Terraform, the access keys will end up in Terraform state; at that point the remote state backend must be encrypted at rest and access-controlled. That trade-off is deferred until the IaC conversion.
+When this phase is converted to Terraform, the access key will end up in Terraform state; at that point the remote state backend must be encrypted at rest and access-controlled.
 
-## Adding a new managed Mac
+## Adding or removing a managed Mac
 
-1. Set `HOST` to the new machine's `hostname -s`.
-2. Run section 2 (create user → attach per-host policy → create access key).
-3. Store the credentials in 1Password under that machine's entry.
-4. Trigger the Jamf install policy on that machine.
+- **Add:** enrol the Mac in Jamf and run the install policy with parameters `$6`–`$8`. It installs the AWS CLI, writes the shared credential, deploys the uploader, and schedules the cron. No per-machine AWS change.
+- **Remove:** unenrol or wipe via Jamf. There is no per-machine AWS object to delete.
+- **Revocation is fleet-wide, not per-device.** Because every Mac shares one key, you cannot cut off a single lost device without rotating the key for all of them (one `iam create-access-key` / `delete-access-key` cycle plus a Jamf policy update). If per-device revocation ever becomes a hard requirement, that is the trigger to consider the upgrade path below. Existing log data is never purged on offboarding; it stays until lifecycle expiry, erasable early only via the break-glass role for a GDPR obligation.
 
-## Removing / revoking a machine
+## Identity model and upgrade path
 
-1. Delete the access key(s), then the inline policy, then the user:
-   ```bash
-   aws iam list-access-keys --user-name vector-$HOST          # find the key IDs
-   aws iam delete-access-key --user-name vector-$HOST --access-key-id <id>
-   aws iam delete-user-policy --user-name vector-$HOST --policy-name vector-writer-$HOST
-   aws iam delete-user --user-name vector-$HOST
-   ```
-   Vector on that machine will start 403'ing within minutes.
-2. (Optional) Remove the now-orphaned log data — only if the machine genuinely shouldn't have data retained:
-   ```bash
-   aws s3 rm "s3://$BUCKET/claude-audit/" --recursive \
-     --exclude "*" --include "*/host=$HOST/*"
-   ```
+A single shared write-only key keeps Phase 0 small: no per-device provisioning, no certificates, no CA. The accepted costs are fleet-wide revocation (above) and that a leaked key could write junk into the prefix, though it can never read or delete (Object Lock holds).
 
-## Rotating credentials
+If per-device cryptographic identity is ever needed, the upgrade swaps only the credential mechanism; the bucket, uploader, and log format do not change. It is **not planned**, and what we found makes the cost explicit:
 
-Annual rotation, manual:
-
-```bash
-# 1. Create the replacement key (machine now has two active keys)
-aws iam create-access-key --user-name vector-$HOST
-
-# 2. Push the new credential via Jamf, confirm Vector is writing with it
-
-# 3. Mark the old key inactive
-aws iam update-access-key --user-name vector-$HOST --access-key-id <old-id> --status Inactive
-
-# 4. After 24h with no errors, delete the old key
-aws iam delete-access-key --user-name vector-$HOST --access-key-id <old-id>
-```
-
-A future improvement (post-IaC): eliminate writer keys entirely with IAM Roles Anywhere (see below), which removes the rotation problem rather than automating it. If static keys are still in use when IaC lands, an interim Lambda + EventBridge schedule could rotate them every 90 days — but treat that as a stopgap, not the target.
-
-## Target: IAM Roles Anywhere for writers
-
-> **Not implemented in Phase 0.** This section documents the target state so the eventual IaC conversion has a north star. The live setup today is the static per-host keys in section 2.
-
-The per-Mac IAM user model (section 2) is the bulk of the ongoing operational toil: one IAM user + inline policy + static key per machine, created by hand, rotated manually, revoked manually. It scales linearly with the fleet and every step is a chance to leak a long-lived credential.
-
-**IAM Roles Anywhere** removes that toil while *keeping* the strict per-host write isolation. The shift is from *one identity per machine* to *one role whose scope is derived from a per-machine certificate*:
-
-- **One IAM role** (`vector-writer`) replaces all `vector-<host>` users.
-- Each Mac holds an **X.509 certificate** delivered by Jamf (Jamf already manages device certs via SCEP/PKI). A **trust anchor** in Roles Anywhere validates certs issued by your CA.
-- The role's session is **tagged with the hostname**, sourced from a certificate field (e.g. CN or a SAN) — *not* self-asserted by the client. Roles Anywhere maps cert attributes to session tags.
-- The write policy scopes the resource with an ABAC condition instead of a hardcoded host:
-
-  ```
-  arn:aws:s3:::mhi-claude-audit/claude-audit/*/host=${aws:PrincipalTag/x509Subject}/*
-  ```
-
-  so a Mac presenting `alice-mbp`'s cert can only write under `host=alice-mbp/` — the same guarantee as today's per-user policy, enforced by the request-time condition rather than by N separate users.
-
-What this buys:
-
-- **No per-Mac IAM objects.** Adding a Mac is Jamf cert enrollment, not `aws iam create-user` + policy + key.
-- **No static AWS keys.** Vector gets short-lived credentials via the Roles Anywhere credential helper; there is nothing in 1Password to leak.
-- **No manual key rotation.** Credentials are ephemeral; the cert rotates on the PKI's own schedule, which Jamf already manages.
-- **Same isolation.** The blast radius of a compromised machine is still exactly its own `host=<host>/` partition.
-
-Why it's deferred: it needs a CA / trust anchor and Jamf cert delivery wired up, which is more than Phase 0's "stand it up by hand" scope. Vector supports Roles Anywhere via the `aws_credentials_helper` it can shell out to (the `aws_signing_helper credential-process`), so no Vector code changes are needed — only AWS + Jamf configuration.
-
-The critical correctness point: **the hostname session tag must come from the certificate identity, never from a client-supplied value.** If a machine could set its own hostname tag, the isolation is theatre. Sourcing it from the cert subject (which the machine cannot forge without the CA) is what makes the ABAC condition a real boundary.
-
-## Validating the policy enforcement
-
-Test the per-host scoping **before** fleet rollout. Configure the AWS CLI with an `alice-mbp` writer credential, then:
-
-```bash
-# This should succeed — writing to alice's own partition
-echo test | gzip | aws s3 cp - s3://mhi-claude-audit/claude-audit/year=2026/month=05/day=20/host=alice-mbp/test/file.log.gz
-
-# These should BOTH 403
-echo test | gzip | aws s3 cp - s3://mhi-claude-audit/claude-audit/year=2026/month=05/day=20/host=bob-mbp/test/file.log.gz
-aws s3 ls s3://mhi-claude-audit/
-```
-
-If either deny test succeeds, the policy isn't doing its job — investigate before rolling out.
+- **The Jamf built-in CA cannot be the issuer.** Observed in-tenant (2026-06-24): the Jamf SCEP payload offers Certificate authority types of Manual configuration / External CA / AD CS only, and requires a SCEP server URL. The built-in CA does not expose a SCEP endpoint, so it cannot issue device-identity certs for this.
+- **The viable cert path is AWS Private CA + Connector for SCEP**, which AWS documents as supporting Jamf Pro and which hands the MDM a SCEP endpoint to enrol against. The same Private CA would then serve as the IAM Roles Anywhere trust anchor.
+- **It carries a recurring AWS Private CA cost** (per-CA monthly plus per-cert). For a sub-25-Mac fleet whose only job is authenticating a log upload, that cost is why this stays deferred. Confirm current pricing before pursuing.
 
 ## Cost monitoring
 
