@@ -56,17 +56,17 @@ host="$(hostname -s 2>/dev/null || echo unknown)"
 shopt -s nullglob
 for debug_dir in /Users/*/.claude/debug; do
   # Owning username from the path: /Users/<user>/.claude/debug
-  user="${debug_dir#/Users/}"
-  user="${user%%/*}"
+  user="${debug_dir#/Users/}"   # strip the leading "/Users/"
+  user="${user%%/*}"            # strip from the first "/" to the end
   for hook in "${HOOK_LOGS[@]}"; do
-    f="$debug_dir/$hook.jsonl"
-    [[ -f "$f" ]] || continue
+    log_file="$debug_dir/$hook.jsonl"
+    [[ -f "$log_file" ]] || continue
 
-    size="$(wc -c < "$f" | tr -d '[:space:]')"
+    size="$(wc -c < "$log_file" | tr -d '[:space:]')"
     [[ "$size" =~ ^[0-9]+$ ]] || continue
 
-    off_file="$STATE_DIR/${user}__${hook}.offset"
-    offset="$(cat "$off_file" 2>/dev/null || echo 0)"
+    offset_file="$STATE_DIR/${user}__${hook}.offset"
+    offset="$(cat "$offset_file" 2>/dev/null || echo 0)"
     [[ "$offset" =~ ^[0-9]+$ ]] || offset=0
 
     # newsyslog truncates in place (': > file'); a shrunk file resets the offset.
@@ -79,15 +79,15 @@ for debug_dir in /Users/*/.claude/debug; do
     # epoch-offset-RANDOM keeps the key unique even if two users' deltas for the same
     # hook land in the same second at the same offset (host-only partition keeps the
     # local username out of the key path; it stays inside each record instead).
-    key="$PREFIX/$day/host=$host/$hook/${epoch}-${offset}-${RANDOM}.log.gz"
+    s3_key="$PREFIX/$day/host=$host/$hook/${epoch}-${offset}-${RANDOM}.log.gz"
 
     # Cap the read at the measured size: the offset only advances to `size`, so a
     # concurrent append past it would otherwise be re-shipped next run. -> [offset, size)
-    if tail -c "+$((offset + 1))" "$f" | head -c "$((size - offset))" | gzip -c \
-         | "$AWS_BIN" s3 cp - "s3://$BUCKET/$key" --region "$REGION" --content-encoding gzip >/dev/null 2>&1; then
+    if tail -c "+$((offset + 1))" "$log_file" | head -c "$((size - offset))" | gzip -c \
+         | "$AWS_BIN" s3 cp - "s3://$BUCKET/$s3_key" --region "$REGION" --content-encoding gzip >/dev/null 2>&1; then
       # Advance the offset only on a confirmed upload; a failure retries next run.
-      echo "$size" > "$off_file"
-      echo "upload-audit-logs: uploaded ${user}/${hook} bytes ${offset}-${size} -> s3://${BUCKET}/${key}"
+      echo "$size" > "$offset_file"
+      echo "upload-audit-logs: uploaded ${user}/${hook} bytes ${offset}-${size} -> s3://${BUCKET}/${s3_key}"
     else
       echo "upload-audit-logs: upload FAILED for ${user}/${hook} (offset unchanged, will retry next run)" >&2
     fi
