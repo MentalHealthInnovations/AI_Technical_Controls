@@ -8,8 +8,17 @@
 # This script self-updates on each run: it copies itself out of the cloned repo before copying
 # the policy files, so changes to this script deploy automatically without requiring
 # InstallClaudeGovernance.sh to be re-run on each managed machine.
+#
+# Argument:
+#   $1 (optional): git branch or tag to clone instead of the default branch. Used only for
+#       testing unreleased policy changes on a single machine. The daily cron and the
+#       update_ai_governance setuid wrapper both invoke this script with no argument, so
+#       production machines always track the default branch.
 
 set -e
+
+# Optional git ref (branch or tag) to test. Empty => clone the repository default branch.
+git_ref="${1:-}"
 
 claude_config_dir="/Library/Application Support/ClaudeCode/"
 claude_hooks_dir="/opt/claude/hooks/"
@@ -20,13 +29,23 @@ script_dest="/usr/local/bin/pull_claude_governance.sh"
 echo "Creating directories..."
 mkdir -p "$claude_config_dir" "$claude_hooks_dir" "$claude_bin_dir"
 
-echo "Cloning AI_Technical_Controls repository..."
 rm -rf "$ai_governance_repo_dir"
-# Clone main. Integrity is enforced at the source: CODEOWNERS and branch protection
-# require two-person approval for every merge, so a tampered main implies the
+# Clone main by default. Integrity is enforced at the source: CODEOWNERS and branch
+# protection require two-person approval for every merge, so a tampered main implies the
 # security team itself was compromised, and client-side tag pinning would not add
 # meaningful protection against that threat.
-git clone --quiet --depth 1 https://github.com/MentalHealthInnovations/AI_Technical_Controls "$ai_governance_repo_dir"
+#
+# When a ref is supplied (testing only, never by the cron or the setuid wrapper), clone
+# that branch/tag instead so unreleased policy changes can be validated on one machine.
+if [[ -n "$git_ref" ]]; then
+  echo "Cloning AI_Technical_Controls repository (ref: $git_ref)..."
+  git clone --quiet --depth 1 --branch "$git_ref" \
+    https://github.com/MentalHealthInnovations/AI_Technical_Controls "$ai_governance_repo_dir"
+else
+  echo "Cloning AI_Technical_Controls repository..."
+  git clone --quiet --depth 1 \
+    https://github.com/MentalHealthInnovations/AI_Technical_Controls "$ai_governance_repo_dir"
+fi
 
 # Self-update: replace this script with the latest version from the repo before copying
 # policy files. Uses cp (atomic inode replacement) so the running process is unaffected;

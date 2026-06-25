@@ -30,8 +30,19 @@
 #
 # Optional add-on (configured only when $7/$8 are supplied):
 #   - AWS CLI (used to upload hook audit logs to S3).
+#
+# Testing override:
+#   GOVERNANCE_GIT_REF: a git branch or tag to install instead of the default branch.
+#       Used only to validate unreleased policy changes on a single machine, e.g.
+#         sudo GOVERNANCE_GIT_REF=feat/my-change ./InstallClaudeGovernance.sh
+#       The ref applies to the bootstrap clone here and is passed through to the
+#       installed pull script for this install run. The daily cron and the
+#       update_ai_governance setuid wrapper invoke the pull script with no argument,
+#       so subsequent updates revert the machine to the default branch.
 
 set -e
+
+GOVERNANCE_GIT_REF="${GOVERNANCE_GIT_REF:-}"
 
 JAMF_JQ_TRIGGER="${4:-}"
 JAMF_XCODE_CLT_TRIGGER="${5:-}"
@@ -151,9 +162,16 @@ echo "Starting to pull Claude governance files."
 # Bootstrap: clone the repo, copy pull_claude_governance.sh to /usr/local/bin/, then execute it.
 # After this first install, pull_claude_governance.sh self-updates on every subsequent run.
 # Changes to it deploy automatically via the daily cron without requiring this script to be re-run.
-echo "Cloning AI_Technical_Controls repository..."
 rm -rf "$ai_governance_repo_dir"
-git clone --quiet --depth 1 https://github.com/MentalHealthInnovations/AI_Technical_Controls "$ai_governance_repo_dir"
+if [[ -n "$GOVERNANCE_GIT_REF" ]]; then
+  echo "Cloning AI_Technical_Controls repository (ref: $GOVERNANCE_GIT_REF)..."
+  git clone --quiet --depth 1 --branch "$GOVERNANCE_GIT_REF" \
+    https://github.com/MentalHealthInnovations/AI_Technical_Controls "$ai_governance_repo_dir"
+else
+  echo "Cloning AI_Technical_Controls repository..."
+  git clone --quiet --depth 1 \
+    https://github.com/MentalHealthInnovations/AI_Technical_Controls "$ai_governance_repo_dir"
+fi
 
 echo "Installing pull script..."
 sudo cp "$ai_governance_repo_dir/ClaudeCode/pull_claude_governance.sh" "$script_dest"
@@ -162,8 +180,15 @@ rm -rf "$ai_governance_repo_dir"
 
 echo "Created script to pull governance files."
 
-# Run the installed script to deploy all policy files
-sudo "$script_dest"
+# Run the installed script to deploy all policy files. Pass the test ref through so this
+# install run deploys the same branch/tag the bootstrap cloned (sudo does not preserve the
+# environment, so it must travel as an argument). With no ref, the pull script clones the
+# default branch as usual.
+if [[ -n "$GOVERNANCE_GIT_REF" ]]; then
+  sudo "$script_dest" "$GOVERNANCE_GIT_REF"
+else
+  sudo "$script_dest"
+fi
 
 echo "Installed governance files."
 
