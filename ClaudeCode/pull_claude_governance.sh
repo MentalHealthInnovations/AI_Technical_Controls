@@ -60,7 +60,7 @@ cp "$ai_governance_repo_dir/ClaudeCode/managed-settings.json" "$claude_config_di
 echo "Copying managed-mcp.json..."
 # managed-mcp.json is read by Claude Code as the exclusive list of MCP servers
 # when present at this path. managed-settings.json governs only the *policy*
-# layer (allowlist + allowManagedMcpServersOnly); the server definitions live
+# layer (allowlist + allowManagedMcpServersOnly). The server definitions live
 # here. See https://code.claude.com/docs/en/mcp#managed-mcp-configuration.
 cp "$ai_governance_repo_dir/ClaudeCode/managed-mcp.json" "$claude_config_dir"
 
