@@ -23,6 +23,14 @@
 #       this script installs the AWS CLI (via $6 if needed), writes the credentials
 #       to /var/root/.aws/ (0600), and schedules a daily upload cron. When either is
 #       empty, audit-log upload is skipped.
+#   $9: git branch or tag to install instead of the default branch. Testing only:
+#       use it to validate unreleased policy changes on a single machine. The ref
+#       applies to the bootstrap clone here and is passed through to the installed
+#       pull script for this install run. The daily cron and the update_ai_governance
+#       setuid wrapper invoke the pull script with no argument, so subsequent updates
+#       revert the machine to the default branch. When empty, the default branch is
+#       installed. Run by hand with placeholders for the unused slots, e.g.:
+#         sudo ./InstallClaudeGovernance.sh "" "" "" "" "" "" "" "" feat/my-change
 #
 # Dependencies are required and installed via Jamf policy triggers:
 #   - Xcode Command Line Tools (provides git, cc/gcc).
@@ -38,6 +46,7 @@ JAMF_XCODE_CLT_TRIGGER="${5:-}"
 JAMF_AWS_CLI_TRIGGER="${6:-}"
 AWS_AUDIT_ACCESS_KEY_ID="${7:-}"
 AWS_AUDIT_SECRET_ACCESS_KEY="${8:-}"
+GOVERNANCE_GIT_REF="${9:-}"
 
 # trigger_jamf_install RESOURCE TRIGGER VERIFY_CMD [VERIFY_ARGS...]
 # Fires a Jamf policy by its custom trigger and verifies that the resource is
@@ -151,9 +160,16 @@ echo "Starting to pull Claude governance files."
 # Bootstrap: clone the repo, copy pull_claude_governance.sh to /usr/local/bin/, then execute it.
 # After this first install, pull_claude_governance.sh self-updates on every subsequent run.
 # Changes to it deploy automatically via the daily cron without requiring this script to be re-run.
-echo "Cloning AI_Technical_Controls repository..."
 rm -rf "$ai_governance_repo_dir"
-git clone --quiet --depth 1 https://github.com/MentalHealthInnovations/AI_Technical_Controls "$ai_governance_repo_dir"
+if [[ -n "$GOVERNANCE_GIT_REF" ]]; then
+  echo "Cloning AI_Technical_Controls repository (ref: $GOVERNANCE_GIT_REF)..."
+  git clone --quiet --depth 1 --branch "$GOVERNANCE_GIT_REF" \
+    https://github.com/MentalHealthInnovations/AI_Technical_Controls "$ai_governance_repo_dir"
+else
+  echo "Cloning AI_Technical_Controls repository..."
+  git clone --quiet --depth 1 \
+    https://github.com/MentalHealthInnovations/AI_Technical_Controls "$ai_governance_repo_dir"
+fi
 
 echo "Installing pull script..."
 sudo cp "$ai_governance_repo_dir/ClaudeCode/pull_claude_governance.sh" "$script_dest"
@@ -162,8 +178,14 @@ rm -rf "$ai_governance_repo_dir"
 
 echo "Created script to pull governance files."
 
-# Run the installed script to deploy all policy files
-sudo "$script_dest"
+# Run the installed script to deploy all policy files. Pass the test ref through as the
+# pull script's first argument so this install run deploys the same branch/tag the
+# bootstrap cloned. With no ref, the pull script clones the default branch as usual.
+if [[ -n "$GOVERNANCE_GIT_REF" ]]; then
+  sudo "$script_dest" "$GOVERNANCE_GIT_REF"
+else
+  sudo "$script_dest"
+fi
 
 echo "Installed governance files."
 
