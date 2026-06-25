@@ -12,37 +12,24 @@
 #
 # Jamf parameters:
 #   $1, $2, $3: supplied by Jamf (mount point, computer name, console user); unused.
-#   $4: Jamf custom trigger for a policy that installs jq. Required if jq is not
-#       already on the machine; this script invokes `jamf policy -event "$4"` to
-#       install it from an IT-controlled package. Hooks fail closed without jq, so
-#       we refuse to proceed.
+#   $4: Jamf custom trigger for a policy that installs jq.
 #   $5: Jamf custom trigger for a policy that installs Xcode Command Line Tools.
-#       Required if CLT is not already installed; this script invokes
-#       `jamf policy -event "$5"` to install it.
 #   $6: Jamf custom trigger for a policy that installs the AWS CLI (trigger name
 #       installAwsCli). Only used when audit-log S3 upload is being configured
 #       (see $7/$8); this script invokes `jamf policy -event "$6"` if the `aws`
 #       binary is missing.
-#   $7, $8: access key id and secret access key for the fleet-wide write-only S3
+#   $7, $8: access key id and secret access key for the write-only S3
 #       audit-log writer (IAM user `claude-audit-writer`). When both are supplied,
 #       this script installs the AWS CLI (via $6 if needed), writes the credentials
 #       to /var/root/.aws/ (0600), and schedules a daily upload cron. When either is
-#       empty, audit-log upload is skipped and the core governance install is
-#       unaffected.
+#       empty, audit-log upload is skipped.
 #
-# Dependencies (both are required at runtime; both are installed via Jamf
-# policy triggers passed as $4 and $5 if missing, with no Homebrew or softwareupdate
-# fallback, so IT keeps full control over what lands on managed machines):
+# Dependencies are required and installed via Jamf policy triggers:
 #   - Xcode Command Line Tools (provides git, cc/gcc).
-#   - jq (used at runtime by the governance hooks to parse hook payloads and the
-#     domain allowlist; missing jq fails closed and blocks every Bash, Read, and
-#     WebFetch call).
+#   - jq (used to parse hook payloads and domain allowlist).
 #
 # Optional add-on (configured only when $7/$8 are supplied):
-#   - AWS CLI (used by the daily upload-audit-logs.sh cron to ship the hook audit
-#     logs to S3). The writer credential is write-only (s3:PutObject under the log
-#     prefix); a leak cannot read or delete logs. Failure to set this up logs a
-#     warning but never blocks the governance install.
+#   - AWS CLI (used to upload hook audit logs to S3).
 
 set -e
 
@@ -83,8 +70,7 @@ trigger_jamf_install() {
 }
 
 # aws_present: true if the AWS CLI is on PATH or at a Homebrew prefix. installAwsCli
-# installs it via Homebrew, whose prefix isn't on root's non-interactive PATH, so
-# `command -v aws` alone would miss it (and fail the verify). Check the prefixes too.
+# installs it via Homebrew, whose prefix isn't on root's PATH.
 aws_present() {
   command -v aws &>/dev/null && return 0
   [[ -x /opt/homebrew/bin/aws || -x /usr/local/bin/aws ]]
@@ -92,15 +78,14 @@ aws_present() {
 
 # setup_audit_log_upload: optional add-on, run only when writer credentials are supplied
 # as Jamf params $7/$8. Installs the AWS CLI (via $6 if missing), writes the write-only
-# credential to /var/root/.aws/ (0600), and schedules a daily upload cron. Best-effort:
-# failures return non-zero and the caller warns and continues, never blocking the install.
+# credential to /var/root/.aws/ (0600), and schedules a daily upload cron.
+# Failures return non-zero and the caller warns and continues, without blocking the install.
 setup_audit_log_upload() {
   if [[ -z "$AWS_AUDIT_ACCESS_KEY_ID" || -z "$AWS_AUDIT_SECRET_ACCESS_KEY" ]]; then
     echo "Audit-log S3 upload: no writer credentials supplied (params \$7/\$8); skipping."
     return 0
   fi
 
-  # AWS CLI is net-new on the fleet; install it via the installAwsCli Jamf policy.
   if ! aws_present; then
     trigger_jamf_install "AWS CLI" "$JAMF_AWS_CLI_TRIGGER" aws_present || {
       echo "Audit-log S3 upload: AWS CLI install failed; upload not configured." >&2
@@ -120,9 +105,17 @@ setup_audit_log_upload() {
     echo "Audit-log S3 upload: could not create $aws_dir; upload not configured." >&2
     return 1
   fi
-  printf '[default]\naws_access_key_id = %s\naws_secret_access_key = %s\n' \
-    "$AWS_AUDIT_ACCESS_KEY_ID" "$AWS_AUDIT_SECRET_ACCESS_KEY" > "$aws_dir/credentials"
-  printf '[default]\nregion = eu-west-2\noutput = json\n' > "$aws_dir/config"
+  # A partial write here would leave a malformed or truncated credential the uploader
+  # would then try to use, so treat any write failure as fatal: remove the half-written
+  # file, restore umask, and bail.
+  if ! printf '[default]\naws_access_key_id = %s\naws_secret_access_key = %s\n' \
+       "$AWS_AUDIT_ACCESS_KEY_ID" "$AWS_AUDIT_SECRET_ACCESS_KEY" > "$aws_dir/credentials" \
+     || ! printf '[default]\nregion = eu-west-2\noutput = json\n' > "$aws_dir/config"; then
+    rm -f "$aws_dir/credentials" "$aws_dir/config"
+    umask "$old_umask"
+    echo "Audit-log S3 upload: failed to write credentials to $aws_dir; upload not configured." >&2
+    return 1
+  fi
   chmod 600 "$aws_dir/credentials" "$aws_dir/config"
   umask "$old_umask"
   echo "Wrote write-only audit-log uploader credentials to $aws_dir/credentials."

@@ -314,9 +314,9 @@ aws sts get-caller-identity          # confirm you are in the logging/security a
 
 ## 1. Create and harden the S3 bucket
 
-### 1.1 Create the bucket (with Object Lock enabled)
+### 1.1 Create the bucket
 
-**Region is pinned to the UK (`eu-west-2`) for UK GDPR data residency.** The logs contain prompt text and command lines, which can include personal data. Omitting `LocationConstraint` lands the bucket in `us-east-1` (US); do not create this bucket in a non-EU region without DPO sign-off, the region is part of the lawful-basis assessment.
+**Region is pinned to the UK (`eu-west-2`) for UK GDPR data residency.** The logs contain prompt text and command lines, which can include personal data.
 
 `--object-lock-enabled-for-bucket` must be set at creation. Object Lock requires versioning and, once enabled, cannot be disabled, so this is a create-time, effectively-permanent decision. Enabling it at creation also turns versioning on automatically.
 
@@ -328,7 +328,7 @@ aws s3api create-bucket \
   --object-lock-enabled-for-bucket
 ```
 
-### 1.2 Block all public access (account-plane defence in depth)
+### 1.2 Block all public access
 
 Blocks every form of public access at the bucket's control plane, regardless of any future bucket policy.
 
@@ -341,9 +341,7 @@ aws s3api put-public-access-block \
 
 > Apply this **before** the bucket policy in step 1.7, otherwise the policy attempt can race the account-level restriction.
 
-### 1.3 Enable encryption at rest (SSE-S3 / AES-256)
-
-SSE-S3 is sufficient for Phase 0. Move to SSE-KMS only if a compliance requirement asks for customer-managed key control over the logs at rest.
+### 1.3 Enable encryption at rest
 
 ```bash
 aws s3api put-bucket-encryption \
@@ -356,7 +354,7 @@ aws s3api put-bucket-encryption \
   }'
 ```
 
-### 1.4 Versioning is ON (required by Object Lock)
+### 1.4 Versioning is ON
 
 Versioning was enabled automatically by `--object-lock-enabled-for-bucket` in step 1.1. Confirm it:
 
@@ -375,11 +373,11 @@ aws s3api get-bucket-ownership-controls --bucket "$BUCKET"
 # Expect: ObjectOwnership = BucketOwnerEnforced (or no controls set, the same default)
 ```
 
-### 1.6 Lifecycle policy (tiering + expiry)
+### 1.6 Lifecycle policy
 
 30 days hot (Standard) → Standard-IA → Glacier Instant Retrieval → delete at 395 days.
 
-**395 days = 13 months**, the default retention for security audit telemetry. Changing the expiry requires DPO sign-off, the retention figure is part of the lawful-basis assessment. Keep retention between 90 days and 7 years. The current-version `Expiration` (395d) and the Object Lock default retention (step 1.8) express the same 395-day intent; keep them equal so a lifecycle delete never collides with an unexpired lock.
+**395 days = 13 months.** The current-version `Expiration` (395d) and the Object Lock default retention (step 1.8) express the same 395-day intent; keep them equal so a lifecycle delete never collides with an unexpired lock.
 
 ```bash
 aws s3api put-bucket-lifecycle-configuration \
@@ -422,7 +420,7 @@ aws s3api put-bucket-policy \
   }'
 ```
 
-### 1.8 Object Lock default retention (GOVERNANCE, 395 days)
+### 1.8 Object Lock default retention
 
 A GOVERNANCE-mode default retention means every uploaded object is WORM-protected for 395 days: the writer and routine admins cannot delete or overwrite logs within that window. GOVERNANCE (not COMPLIANCE) is deliberate, a break-glass role holding `s3:BypassGovernanceRetention` can still erase data if a GDPR obligation (e.g. a data-subject erasure request) requires it. COMPLIANCE mode was rejected: under it nothing, including root, can delete before expiry, which conflicts with GDPR erasure duties.
 
@@ -456,10 +454,10 @@ aws s3api put-bucket-tagging \
 
 One IAM user for the whole fleet. Its inline policy allows only `s3:PutObject` under the `claude-audit/` prefix: it cannot read any object, cannot list the bucket, and cannot delete. Because attribution comes from the record contents (`user` / `host`), there is no per-host identity to provision.
 
-The object key layout the uploader writes (the host segment partitions the bucket for browsability; it is **not** a security boundary now, since the single writer may write any path under `claude-audit/`):
+The object key layout the uploader writes (the `host` and `user` segments partition the bucket for browsability; they are **not** a security boundary now, since the single writer may write any path under `claude-audit/`):
 
 ```
-claude-audit/year=YYYY/month=MM/day=DD/host=<host>/<hook>/<epoch>-<offset>-<rand>.log.gz
+claude-audit/year=YYYY/month=MM/day=DD/host=<host>/user=<user>/<hook>/<epoch>-<offset>-<rand>.log.gz
 ```
 
 ### 2.1 Create the user
@@ -634,11 +632,7 @@ When this phase is converted to Terraform, the access key will end up in Terrafo
 
 A single shared write-only key keeps Phase 0 small: no per-device provisioning, no certificates, no CA. The accepted costs are fleet-wide revocation (above) and that a leaked key could write junk into the prefix, though it can never read or delete (Object Lock holds).
 
-If per-device cryptographic identity is ever needed, the upgrade swaps only the credential mechanism; the bucket, uploader, and log format do not change. It is **not planned**, and what we found makes the cost explicit:
-
-- **The Jamf built-in CA cannot be the issuer.** Observed in-tenant (2026-06-24): the Jamf SCEP payload offers Certificate authority types of Manual configuration / External CA / AD CS only, and requires a SCEP server URL. The built-in CA does not expose a SCEP endpoint, so it cannot issue device-identity certs for this.
-- **The viable cert path is AWS Private CA + Connector for SCEP**, which AWS documents as supporting Jamf Pro and which hands the MDM a SCEP endpoint to enrol against. The same Private CA would then serve as the IAM Roles Anywhere trust anchor.
-- **It carries a recurring AWS Private CA cost** (per-CA monthly plus per-cert). For a sub-25-Mac fleet whose only job is authenticating a log upload, that cost is why this stays deferred. Confirm current pricing before pursuing.
+If per-device identity is ever needed, the upgrade swaps only the credential mechanism; the bucket, uploader, and log format do not change.
 
 ## Cost monitoring
 
