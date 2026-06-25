@@ -2,6 +2,22 @@
   "allowedChannelPlugins": [],
   "allowedHttpHookUrls": [],
   "allowedMcpServers": [{"serverName": "atlassian"}],
+  "_comment_mcpAllowedTools": "Per-server MCP tool allowlist read at runtime by /opt/claude/hooks/mcp-policy-check.sh (PreToolUse matcher mcp__.*). Default-deny: an MCP tool call is permitted only when its tool name is listed under its server key here. Any tool not listed, and EVERY tool of a server with no key at all, is denied. This is the only place that grants MCP tool access; allowedMcpServers above controls which servers may connect, this controls which of their tools may run. Tool names are the bare <tool> segment of mcp__<server>__<tool>.",
+  "_mcpAllowedTools": {
+    "atlassian": [
+      "getAccessibleAtlassianResources",
+      "atlassianUserInfo",
+      "getJiraIssue",
+      "getJiraIssueRemoteIssueLinks",
+      "getJiraIssueTypeMetaWithFields",
+      "getJiraProjectIssueTypesMetadata",
+      "getIssueLinkTypes",
+      "getTransitionsForJiraIssue",
+      "getVisibleJiraProjects",
+      "lookupJiraAccountId",
+      "searchJiraIssuesUsingJql"
+    ]
+  },
   "allowManagedHooksOnly": true,
   "allowManagedMcpServersOnly": true,
   "allowManagedPermissionRulesOnly": true,
@@ -268,6 +284,15 @@
           {
             "type": "command",
             "command": "/opt/claude/hooks/webfetch-policy-check.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/claude/hooks/mcp-policy-check.sh"
           }
         ]
       },
