@@ -233,6 +233,9 @@
         "docs.aws.amazon.com",
         "pricing.us-east-1.amazonaws.com",
         "developer.salesforce.com",
+        "help.salesforce.com",
+        "resources.docs.salesforce.com",
+        "architect.salesforce.com",
         "docs.github.com"
       ],
       "_comment_webfetchPathScopes": "WebFetch-only path tightening, read solely by webfetch-policy-check.sh. Each key is a host that also appears in allowedDomains; its value is a path prefix that WebFetch URLs to that host must fall under (exact match or a '/'-bounded child). Hosts not listed here are unrestricted. This does NOT constrain Bash network egress — the OS sandbox sees host only and allows every path — so treat it as a WebFetch convenience/blast-radius control, not a hard boundary.",
