@@ -259,10 +259,12 @@ Blocked — project not on the allowlist, must be denied by `mcp-policy-check.sh
 
 Allowed — project on the allowlist, must pass the hook (an Atlassian-side 403/404 if the signed-in user lacks access to that project is still a hook PASS):
 
-96. `mcp__atlassian__getJiraProjectIssueTypesMetadata` with `projectIdOrKey: "PLAN"` — allowlisted; **ALLOWED**
-97. `mcp__atlassian__getJiraProjectIssueTypesMetadata` with `projectIdOrKey: "DENGS"` — allowlisted; **ALLOWED**
-98. `mcp__atlassian__getJiraProjectIssueTypesMetadata` with `projectIdOrKey: "DATA"` — allowlisted; **ALLOWED**
-99. `mcp__atlassian__getJiraProjectIssueTypesMetadata` with `projectIdOrKey: "MJB"` — allowlisted; **ALLOWED**
+> **Tool choice — avoid Atlassian-side permission errors.** `getJiraProjectIssueTypesMetadata` returns the *create-issue* field metadata, so Atlassian rejects it with "You cannot create issues in this project" for any project where the signed-in user lacks create permission (e.g. `DENGS`, `DATA`, `MJB`) — a noisy red error even though the hook passed. Test 96 keeps `getJiraProjectIssueTypesMetadata` against `PLAN` (where create is permitted) to cover the `projectIdOrKey` parse path cleanly; tests 97–99 use the read-only `searchJiraIssuesUsingJql` path instead, which returns issues (or an empty list) without a permission error while still exercising the project allowlist for each key. Pass `fields: ["key"]`, `maxResults: 1` to keep the response small.
+
+96. `mcp__atlassian__getJiraProjectIssueTypesMetadata` with `projectIdOrKey: "PLAN"` — allowlisted, create permitted; **ALLOWED**
+97. `mcp__atlassian__searchJiraIssuesUsingJql` with `jql: "project = DENGS ORDER BY created DESC"`, `maxResults: 1`, `fields: ["key"]` — allowlisted; **ALLOWED**
+98. `mcp__atlassian__searchJiraIssuesUsingJql` with `jql: "project = DATA ORDER BY created DESC"`, `maxResults: 1`, `fields: ["key"]` — allowlisted; **ALLOWED**
+99. `mcp__atlassian__searchJiraIssuesUsingJql` with `jql: "project = MJB ORDER BY created DESC"`, `maxResults: 1`, `fields: ["key"]` — allowlisted; **ALLOWED**
 100. `mcp__atlassian__searchJiraIssuesUsingJql` with `jql: "project = PLAN ORDER BY created DESC"`, `maxResults: 1` — AND-only JQL scoped to an allowlisted project; **ALLOWED**
 
 **Test 61** (`.git/HEAD` write is permitted) — run on its own.
@@ -384,9 +386,9 @@ The output must follow exactly this shape (open with ` ```markdown ` and close w
 | 94 | MCP searchJiraIssuesUsingJql project in (PLAN, ONB) (mixed, ONB not allowlisted) | BLOCKED | ... | ... |
 | 95 | MCP searchJiraIssuesUsingJql project = PLAN OR ... (OR escapes scope) | BLOCKED | ... | ... |
 | 96 | MCP getJiraProjectIssueTypesMetadata PLAN (allowlisted) | ALLOWED | ... | ... |
-| 97 | MCP getJiraProjectIssueTypesMetadata DENGS (allowlisted) | ALLOWED | ... | ... |
-| 98 | MCP getJiraProjectIssueTypesMetadata DATA (allowlisted) | ALLOWED | ... | ... |
-| 99 | MCP getJiraProjectIssueTypesMetadata MJB (allowlisted) | ALLOWED | ... | ... |
+| 97 | MCP searchJiraIssuesUsingJql project = DENGS (allowlisted) | ALLOWED | ... | ... |
+| 98 | MCP searchJiraIssuesUsingJql project = DATA (allowlisted) | ALLOWED | ... | ... |
+| 99 | MCP searchJiraIssuesUsingJql project = MJB (allowlisted) | ALLOWED | ... | ... |
 | 100 | MCP searchJiraIssuesUsingJql project = PLAN (allowlisted) | ALLOWED | ... | ... |
 
 ## Summary
