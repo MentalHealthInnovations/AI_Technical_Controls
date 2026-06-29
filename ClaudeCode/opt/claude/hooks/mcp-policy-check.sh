@@ -38,6 +38,102 @@ is_allowed() {
   return 1
 }
 
+# --- Atlassian project (space) allowlist -------------------------------------
+# Read tools that name a Jira project or issue are scoped to these project keys;
+# every other project is denied. Keys are compared case-insensitively. EDIT THIS
+# LIST to change which projects Claude Code may read. An empty list denies all
+# project-scoped reads. Cross-project tools that take no project key
+# (getVisibleJiraProjects, lookupJiraAccountId, getIssueLinkTypes, and the two
+# shared tools getAccessibleAtlassianResources / atlassianUserInfo) are not bound
+# by this list — a project allowlist cannot express "list only these projects".
+ATLASSIAN_PROJECTS="PLAN DENGS DATA MJB"
+
+# project_allowed <key> — true iff <key> (any case) is an alphanumeric Jira key
+# present in ATLASSIAN_PROJECTS. Numeric ids fail the key shape and are denied,
+# since the hook cannot resolve an id to a key without calling Atlassian.
+project_allowed() {
+  local want p
+  want="$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"
+  [[ "$want" =~ ^[A-Z][A-Z0-9_]*$ ]] || return 1
+  for p in $ATLASSIAN_PROJECTS; do
+    [[ "$(printf '%s' "$p" | tr '[:lower:]' '[:upper:]')" == "$want" ]] && return 0
+  done
+  return 1
+}
+
+# issue_key_project <issueIdOrKey> — echo the project key of a PROJ-123 issue
+# key, or nothing if the argument is not in KEY-NUMBER form (e.g. a bare numeric
+# issue id, which cannot be mapped to a project here).
+issue_key_project() {
+  [[ "$1" =~ ^([A-Za-z][A-Za-z0-9_]*)-[0-9]+$ ]] && printf '%s' "${BASH_REMATCH[1]}"
+}
+
+# jql_scope_ok <jql> — true iff the JQL is bounded to allowlisted projects.
+# Accepts an AND-only query (no OR, no NOT — so every clause is conjunctive and a
+# positive project restriction bounds the whole result set) that carries a
+# `project = KEY` or `project in (KEY, ...)` clause naming only allowlisted keys.
+# Everything else (OR/NOT, project negation, numeric project ids, no project
+# clause, anything unparseable) is denied. This is deliberately conservative:
+# it rejects some safe-but-complex queries rather than risk allowing one that
+# escapes the allowlist.
+jql_scope_ok() {
+  local jql="$1" inside k found=0
+  [[ -n "$jql" ]] || return 1
+  # OR/NOT can broaden or invert the project restriction; reject both. -w so that
+  # "ORDER", "reporter", "cannot" etc. do not match as substrings.
+  printf '%s' "$jql" | grep -iqwE 'or|not' && return 1
+  # Explicit project negation (project != / project < / project >).
+  printf '%s' "$jql" | grep -iqE 'project[[:space:]]*(!=|<|>)' && return 1
+
+  # project = KEY
+  while IFS= read -r k; do
+    k="${k#\"}"; k="${k%\"}"
+    project_allowed "$k" || return 1
+    found=1
+  done < <(printf '%s' "$jql" \
+             | grep -oiE 'project[[:space:]]*=[[:space:]]*"?[A-Za-z0-9_]+"?' \
+             | sed -E 's/.*=[[:space:]]*//')
+
+  # project in (KEY, KEY, ...)
+  while IFS= read -r inside; do
+    inside="${inside#*\(}"; inside="${inside%\)}"
+    inside="${inside//,/ }"
+    for k in $inside; do
+      k="${k#\"}"; k="${k%\"}"
+      project_allowed "$k" || return 1
+      found=1
+    done
+  done < <(printf '%s' "$jql" | grep -oiE 'project[[:space:]]+in[[:space:]]*\([^)]*\)')
+
+  [[ "$found" -eq 1 ]]
+}
+
+# project_scope_ok <server> <tool> <payload> — true unless the call names a
+# Jira project/issue outside ATLASSIAN_PROJECTS. Only the atlassian server is
+# project-scoped; tools that take no project key are unaffected.
+project_scope_ok() {
+  local server="$1" tool="$2" pl="$3" v proj
+  [[ "$server" == atlassian ]] || return 0
+  case "$tool" in
+    getJiraIssue|getJiraIssueRemoteIssueLinks|getTransitionsForJiraIssue)
+      v="$(printf '%s' "$pl" | jq -r '.tool_input.issueIdOrKey // empty')"
+      proj="$(issue_key_project "$v")"
+      [[ -n "$proj" ]] && project_allowed "$proj"
+      ;;
+    getJiraIssueTypeMetaWithFields|getJiraProjectIssueTypesMetadata)
+      v="$(printf '%s' "$pl" | jq -r '.tool_input.projectIdOrKey // empty')"
+      project_allowed "$v"
+      ;;
+    searchJiraIssuesUsingJql)
+      v="$(printf '%s' "$pl" | jq -r '.tool_input.jql // empty')"
+      jql_scope_ok "$v"
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
 payload="$(cat)"
 tool_name="$(printf '%s' "$payload" | jq -r '.tool_name // empty')"
 
@@ -67,6 +163,10 @@ if [[ "$rest" != *__* || -z "$server" || -z "$tool" ]]; then
 fi
 
 if is_allowed "$server" "$tool"; then
+  # Tool is permitted; now scope project-bearing reads to ATLASSIAN_PROJECTS.
+  if ! project_scope_ok "$server" "$tool" "$payload"; then
+    emit_deny "project_not_in_allowlist" "Jira project not in the policy allowlist for this server"
+  fi
   audit_emit "$payload" allow tool_name "$tool_name" server "$server" tool "$tool"
   echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}'
   exit 0
