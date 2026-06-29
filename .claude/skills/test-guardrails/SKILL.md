@@ -196,16 +196,40 @@ Run tests 22–29, 39, 56, 57, and 64–68 as a **single parallel batch**. Test 
 65. WebFetch `https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/` — Atlassian developer docs host, must be ALLOWED
 66. WebFetch `https://community.atlassian.com/forums/Jira/ct-p/jira` — Atlassian community host, must be ALLOWED
 67. `grep -q '"atlassian"' ClaudeCode/managed-mcp.json && grep -q '"serverName": "atlassian"' ClaudeCode/managed-settings.json && echo present` — confirms the Atlassian MCP server is both *defined* in `managed-mcp.json` and *allowlisted* in `managed-settings.json`; expected output line `present`
-68. `jq -e 'any(.hooks.PreToolUse[]; .matcher=="mcp__.*") and (._mcpAllowedTools.atlassian|index("getJiraIssue")) and (._mcpAllowedTools.atlassian|index("createJiraIssue")|not)' ClaudeCode/managed-settings.json >/dev/null && echo present` — confirms the MCP allowlist hook is wired (PreToolUse matcher `mcp__.*`) and that the allowlist permits a Jira read (`getJiraIssue`) while excluding a Jira write (`createJiraIssue`); expected output line `present`. This is the always-runnable wiring check; the behavioural checks (69–70) need a live connection.
+68. `jq -e 'any(.hooks.PreToolUse[]; .matcher=="mcp__.*") and (.allowedMcpServers[]?.serverName=="atlassian") and (has("_mcpAllowedTools")|not)' ClaudeCode/managed-settings.json >/dev/null && grep -q 'searchJiraIssuesUsingJql' ClaudeCode/opt/claude/hooks/mcp-policy-check.sh && echo present` — confirms the MCP allowlist hook is wired (PreToolUse matcher `mcp__.*`), the `atlassian` server is allowed to connect, the per-tool allowlist no longer lives in `managed-settings.json` (`_mcpAllowedTools` removed in favour of the hook), and the allowlist now lives in `mcp-policy-check.sh` (a known read tool, `searchJiraIssuesUsingJql`, is present in its `is_allowed` list); expected output line `present`. This is the always-runnable wiring check; the behavioural checks (69–87) need a live connection.
 
 ### EXPECT: depends on a connected Atlassian MCP server
 
-**Tests 69–70** (`mcp-policy-check.sh` default-deny allowlist, behavioural) — run **sequentially, one at a time**, and **only when the `atlassian` MCP server is connected** (`/mcp` shows `connected`). If it is disconnected, the tool names below are not registered and the call fails with "tool not found" rather than a hook decision, so record both as `Not run — atlassian MCP not connected` rather than as failures.
+**Tests 69–87** (`mcp-policy-check.sh` default-deny allowlist, behavioural — one per connected Atlassian tool). Run the **BLOCKED** cases (69, 71–77) **sequentially, one at a time**; the **ALLOWED** cases (70, 78–87) may be **batched**. Run these **only when the `atlassian` MCP server is connected** (`/mcp` shows `connected`). If it is disconnected, these tool names are not registered and each call fails with "tool not found" rather than a hook decision, so record every one as `Not run — atlassian MCP not connected` rather than as a failure.
 
-The deny test is safe to attempt: the PreToolUse hook blocks the call before it reaches Atlassian, so no write occurs. The allow test calls a read-only tool.
+These exercise the allowlist defined in the `is_allowed` function inside `mcp-policy-check.sh`. That hook is the single source of truth for which tools may run — the allowlist is **not** in `managed-settings.json` (only `allowedMcpServers`, which governs which servers may connect, lives there). The allowlist permits read-only tools and denies every state-changing tool by omission (default-deny). The BLOCKED (write) tests are safe to attempt: the PreToolUse hook denies the call before it reaches Atlassian, so no write occurs. The ALLOWED (read) tests call read-only tools; each may still return an Atlassian-side result or error, which still counts as PASS as long as the hook did not block it — PASS here means "passed the hook", not "Atlassian returned data".
 
-69. MCP tool `mcp__atlassian__createJiraIssue` (any minimal args) — **BLOCKED** by `mcp-policy-check.sh` (`not_in_allowlist`); the write must never reach Atlassian.
-70. MCP tool `mcp__atlassian__getVisibleJiraProjects` (no args) — **ALLOWED** by the hook (it is on the allowlist). The call may still return an Atlassian-side result or error, but it must pass the hook rather than being blocked.
+> **What to pass as args.** For BLOCKED tools, any schema-valid minimal args are fine — the hook denies before the args matter. For ALLOWED tools that need a `cloudId` or an issue/project key, use real values from a prior read (`getAccessibleAtlassianResources` gives the cloudId, `getVisibleJiraProjects` a project key, a bounded JQL search an issue key); an Atlassian error on a placeholder key is still a hook PASS.
+
+Blocked — not on the allowlist, must be denied by `mcp-policy-check.sh` (`not_in_allowlist`); a write must never reach Atlassian:
+
+69. `mcp__atlassian__createJiraIssue` — create issue (write)
+71. `mcp__atlassian__editJiraIssue` — update issue (write)
+72. `mcp__atlassian__addCommentToJiraIssue` — add comment (write)
+73. `mcp__atlassian__addWorklogToJiraIssue` — add worklog (write)
+74. `mcp__atlassian__createIssueLink` — link two issues (write)
+75. `mcp__atlassian__transitionJiraIssue` — transition status (write)
+76. `mcp__atlassian__search` — Rovo cross-product search (read, but not on the allowlist)
+77. `mcp__atlassian__fetch` — Rovo fetch-by-ARI (read, but not on the allowlist)
+
+Allowed — on the allowlist, must pass the hook (all read-only):
+
+70. `mcp__atlassian__getVisibleJiraProjects` (needs `cloudId`)
+78. `mcp__atlassian__getAccessibleAtlassianResources` (no args)
+79. `mcp__atlassian__atlassianUserInfo` (no args)
+80. `mcp__atlassian__getJiraIssue` (needs `cloudId`, `issueIdOrKey`)
+81. `mcp__atlassian__getJiraIssueRemoteIssueLinks` (needs `cloudId`, `issueIdOrKey`)
+82. `mcp__atlassian__getJiraIssueTypeMetaWithFields` (needs `cloudId`, `projectIdOrKey`, `issueTypeId`)
+83. `mcp__atlassian__getJiraProjectIssueTypesMetadata` (needs `cloudId`, `projectIdOrKey`)
+84. `mcp__atlassian__getIssueLinkTypes` (needs `cloudId`)
+85. `mcp__atlassian__getTransitionsForJiraIssue` (needs `cloudId`, `issueIdOrKey`)
+86. `mcp__atlassian__lookupJiraAccountId` (needs `cloudId`, `searchString`)
+87. `mcp__atlassian__searchJiraIssuesUsingJql` (needs `cloudId`, a bounded `jql`)
 
 **Test 61** (`.git/HEAD` write is permitted) — run on its own.
 
@@ -297,9 +321,26 @@ The output must follow exactly this shape (open with ` ```markdown ` and close w
 | 65 | WebFetch developer.atlassian.com/cloud/jira/platform/rest/v3/intro/ | ALLOWED | ... | ... |
 | 66 | WebFetch community.atlassian.com/forums/Jira/ct-p/jira | ALLOWED | ... | ... |
 | 67 | atlassian MCP server defined in managed-mcp.json and allowlisted in managed-settings.json | ALLOWED | ... | ... |
-| 68 | MCP allowlist hook wired + allowlist permits getJiraIssue, excludes createJiraIssue | ALLOWED | ... | ... |
-| 69 | MCP mcp__atlassian__createJiraIssue (write) | BLOCKED | ... | ... |
-| 70 | MCP mcp__atlassian__getVisibleJiraProjects (read) | ALLOWED | ... | ... |
+| 68 | MCP allowlist hook wired in managed-settings + allowlist moved to mcp-policy-check.sh (not in managed-settings) | ALLOWED | ... | ... |
+| 69 | MCP createJiraIssue (write) | BLOCKED | ... | ... |
+| 70 | MCP getVisibleJiraProjects (read) | ALLOWED | ... | ... |
+| 71 | MCP editJiraIssue (write) | BLOCKED | ... | ... |
+| 72 | MCP addCommentToJiraIssue (write) | BLOCKED | ... | ... |
+| 73 | MCP addWorklogToJiraIssue (write) | BLOCKED | ... | ... |
+| 74 | MCP createIssueLink (write) | BLOCKED | ... | ... |
+| 75 | MCP transitionJiraIssue (write) | BLOCKED | ... | ... |
+| 76 | MCP search (Rovo search, not allowlisted) | BLOCKED | ... | ... |
+| 77 | MCP fetch (Rovo fetch, not allowlisted) | BLOCKED | ... | ... |
+| 78 | MCP getAccessibleAtlassianResources (read) | ALLOWED | ... | ... |
+| 79 | MCP atlassianUserInfo (read) | ALLOWED | ... | ... |
+| 80 | MCP getJiraIssue (read) | ALLOWED | ... | ... |
+| 81 | MCP getJiraIssueRemoteIssueLinks (read) | ALLOWED | ... | ... |
+| 82 | MCP getJiraIssueTypeMetaWithFields (read) | ALLOWED | ... | ... |
+| 83 | MCP getJiraProjectIssueTypesMetadata (read) | ALLOWED | ... | ... |
+| 84 | MCP getIssueLinkTypes (read) | ALLOWED | ... | ... |
+| 85 | MCP getTransitionsForJiraIssue (read) | ALLOWED | ... | ... |
+| 86 | MCP lookupJiraAccountId (read) | ALLOWED | ... | ... |
+| 87 | MCP searchJiraIssuesUsingJql (read) | ALLOWED | ... | ... |
 
 ## Summary
 
@@ -311,7 +352,7 @@ The output must follow exactly this shape (open with ` ```markdown ` and close w
 
 Rules for the report:
 
-- Fill the **Actual** column with `BLOCKED`, `ALLOWED`, `Tool unavailable` (for test 10), `VALID JSON` / `INVALID JSON` / `Not run` (tests 46–48, the audit-log JSON integrity checks; `Not run` when the JSONL audit log is not installed), or `AUDIT HOOK FIRED` / `NO RECORD` / `Not run` (tests 58–60, the audit-hook execution checks; `NO RECORD` means the hook is registered but did not fire). For tests 69–70 (live MCP behavioural checks), use `BLOCKED` / `ALLOWED` or `Not run — atlassian MCP not connected` when the server is disconnected. Do not paste error strings or hook messages.
+- Fill the **Actual** column with `BLOCKED`, `ALLOWED`, `Tool unavailable` (for test 10), `VALID JSON` / `INVALID JSON` / `Not run` (tests 46–48, the audit-log JSON integrity checks; `Not run` when the JSONL audit log is not installed), or `AUDIT HOOK FIRED` / `NO RECORD` / `Not run` (tests 58–60, the audit-hook execution checks; `NO RECORD` means the hook is registered but did not fire). For tests 69–87 (live MCP behavioural checks, one per Atlassian tool), use `BLOCKED` / `ALLOWED` or `Not run — atlassian MCP not connected` when the server is disconnected. Do not paste error strings or hook messages.
 - Fill the **Pass/Fail** column with the literal word `Pass` or `Fail` — ASCII only.
 - If any BLOCKED test was actually ALLOWED, that is a guardrail gap — call it out at the top of the Summary section with a bold `**Guardrail gap:**` prefix so a reviewer cannot miss it.
 - Keep the fenced block self-contained: no commentary inside the fence other than the table and summary; no commentary outside the fence other than (optionally) one short sentence pointing the user at the block.
