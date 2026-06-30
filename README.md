@@ -6,7 +6,8 @@ A layered configuration system that makes Claude Code safer to use at scale. The
 
 | File | Purpose |
 |------|---------|
-| `ClaudeCode/managed-settings.json` | Org-wide immutable guardrails |
+| `ClaudeCode/managed-settings.json` | Org-wide immutable guardrails (permissions, sandbox, hooks, MCP allowlist) |
+| `ClaudeCode/managed-mcp.json` | Server definitions for approved MCP servers (Claude Code's "exclusive control" mode) |
 | `ClaudeCode/CLAUDE.md` | Behavioural guidance for Claude Code agents |
 | `ClaudeCode/control_mappings.csv` | Control mapping to ISO 42001 / NIST AI RMF |
 | `ClaudeCode/opt/claude/hooks/bash-policy-check.sh` | Pre-execution policy hook for Bash |
@@ -50,7 +51,7 @@ Run `InstallClaudeGovernance.sh` once as root on each managed machine. It:
 2. Installs `/usr/local/bin/update_ai_governance`, a setuid wrapper so any local user can trigger a refresh without sudo.
 3. Schedules a daily cron (12:00) to keep policies current.
 
-Each run of `pull_claude_governance.sh` deploys `managed-settings.json` and `CLAUDE.md` to `/Library/Application Support/ClaudeCode/`, hook scripts to `/opt/claude/hooks/`, and the audit-log uploader to `/opt/claude/bin/`.
+Each run of `pull_claude_governance.sh` deploys `managed-settings.json`, `managed-mcp.json`, and `CLAUDE.md` to `/Library/Application Support/ClaudeCode/`, hook scripts to `/opt/claude/hooks/`, and the audit-log uploader to `/opt/claude/bin/`.
 
 ## Settings hierarchy
 
@@ -67,6 +68,7 @@ Claude Code uses a four-layer configuration system; higher layers take precedenc
 - **Filesystem** — safe working dirs allowed; `.env`, `secrets/`, SSH keys, cloud creds, and system paths blocked.
 - **GitHub** — read operations mostly allowlisted; PR creation/merge requires approval; history-rewriting flags blocked.
 - **MCP servers** — locked to the managed allowlist. New servers go through the same PR process as new domains.
+    - Atlassian server: Streamable HTTP (`https://mcp.atlassian.com/v1/mcp`), per-user OAuth, acting as the signed-in engineer. A managed PreToolUse hook (`mcp-policy-check.sh`) enforces a default-deny tool allowlist, currently scoped to Jira reads only. See [MCP server operational notes → Tool allowlist](#tool-allowlist-default-deny).
 - **Skills** — `disableSkillShellExecution: true` prevents skill scripts from shelling out directly, forcing them through the hook-policed tool pathway.
 
 ## Hooks
@@ -165,6 +167,90 @@ For automated rotation, drop a `newsyslog` config into `/etc/newsyslog.d/`. Beca
 ```
 
 Daily rotation, 7 compressed archives, no daemon signal. See `man 5 newsyslog.conf`.
+
+## MCP server operational notes
+
+This section covers how engineers use the Model Context Protocol (MCP) servers listed in [Control surfaces → MCP servers](#mcp-servers). The control pack defines *which* servers are permitted. This section explains how each one is authenticated and used.
+
+### Atlassian Remote MCP server
+
+**What it does.** Lets Claude Code read and update Jira issues and Confluence pages: fetch a ticket, post a comment, transition a status, or summarise a Confluence page. Useful for ticket triage, drafting comments from local code context, and pulling acceptance criteria into a working session.
+
+**Endpoint.** `https://mcp.atlassian.com/v1/mcp` (Streamable HTTP transport). Hosted by Atlassian, so there is no local install, no API token, and no env var required on the engineer's machine. Atlassian also still serves an `/v1/sse` Server-Sent Events (SSE) endpoint for backward compatibility, but [recommends `/mcp`](https://github.com/atlassian/atlassian-mcp-server) for new clients. Claude Code also flags SSE as deprecated.
+
+**Authentication model: per user, not global.** The Atlassian Remote MCP defaults to OAuth 2.1 and authenticates each engineer individually:
+
+- On first use, Claude Code opens a browser. The engineer signs in with their MHI Atlassian account and grants scopes.
+- Atlassian issues a per-user token bound to that engineer's identity and stored locally by Claude Code.
+- Every action runs **as that engineer**, so existing Atlassian permissions, project access, and audit logs apply unchanged.
+
+Atlassian also offers a per-user API token mode for headless or long-running clients. We don't use it here because the OAuth flow is friendlier and gives the same per-user attribution.
+
+We do not configure a shared admin token. Beyond Atlassian not supporting that mode for Rovo MCP, it would break the audit trail (every action would appear as a service account) and would grant every Claude Code user the union of all permissions.
+
+> **One-time org admin step (verify before broad rollout):** an Atlassian org admin may need to confirm the Remote MCP / Rovo feature is enabled at the org level in the Atlassian admin console before individual users can connect. On some Atlassian plans this is on by default. On plans with stricter defaults an admin must allow it. This needs to be confirmed against the current Atlassian admin documentation before this PR is marked ready for review. Contact max.levine@mhiuk.org or edward@mhiuk.org, who hold the Atlassian admin role.
+
+### First-use setup (per engineer)
+
+1. Open Claude Code in any working directory.
+2. At the prompt, type `/mcp`. The `atlassian` server should be listed with status `disconnected`.
+3. Select `atlassian` and choose `Connect`. Claude Code opens your browser to Atlassian.
+4. Sign in with your MHI Atlassian account.
+5. Review the requested scopes carefully. Grant only the scopes you need for your work. You can re-grant later if more are needed.
+6. Return to Claude Code. `/mcp` should now show `atlassian` as `connected`.
+
+You only need to do this once per machine. The token is stored locally by Claude Code and refreshed automatically by Atlassian.
+
+### Scope guidance
+
+When the OAuth consent screen asks for scopes:
+
+- **Grant:** read access to Jira issues and Confluence pages, required for the common case (ticket lookup, page summarisation).
+- **Grant only if you need it:** write access (creating issues, posting comments, transitioning status, editing pages). If your work is read-only, do not grant write scopes.
+- **Do not grant:** admin scopes (user management, project administration). Claude Code does not need these, and they widen the blast radius if a prompt injection drives Claude into unintended actions.
+
+Scope choices are made by the engineer at the consent screen and can be widened by reconnecting, so they bound but do not enforce what Claude may do. The tool allowlist below is the enforced layer.
+
+### Tool allowlist (default-deny)
+
+Connecting authenticates Claude Code **as the signed-in engineer**, so without a further control it could call any tool the Atlassian MCP exposes with that engineer's permissions. To bound this, a managed PreToolUse hook (`/opt/claude/hooks/mcp-policy-check.sh`, matcher `mcp__.*`) enforces a per-server **default-deny allowlist**: an MCP tool runs only when its name is listed for its server in the `is_allowed` function inside the hook. Every tool not listed is denied, and every tool of a server with no entry at all is denied. An unparseable tool name also denies. The allowlist is the only thing that grants tool access, and it lives in the hook script itself (the sole consumer), not in `managed-settings.json`. `allowedMcpServers` in `managed-settings.json` controls which servers may connect; the hook controls which of their tools may run.
+
+This is a managed control, not an engineer preference: it cannot be overridden from user or project settings, and it holds regardless of which OAuth scopes were granted or how broad the engineer's Atlassian permissions are.
+
+The current `atlassian` allowlist permits Jira **reads only**: `getJiraIssue`, `getJiraIssueRemoteIssueLinks`, `getJiraIssueTypeMetaWithFields`, `getJiraProjectIssueTypesMetadata`, `getIssueLinkTypes`, `getTransitionsForJiraIssue`, `getVisibleJiraProjects`, `lookupJiraAccountId`, and `searchJiraIssuesUsingJql`, plus the two shared tools every call needs (`getAccessibleAtlassianResources`, `atlassianUserInfo`). All write tools (`createJiraIssue`, `editJiraIssue`, `addCommentToJiraIssue`, `addWorklogToJiraIssue`, `createIssueLink`, `transitionJiraIssue`) and the Rovo cross-product `search` and `fetch` tools are denied, as are all Confluence, Compass, and Teamwork Graph tools. To change what is permitted, edit the `is_allowed` function in `mcp-policy-check.sh` and redeploy the hook.
+
+#### Project scoping
+
+On top of the tool allowlist, the same hook bounds Jira reads to an allowlist of **project keys**, held in `ATLASSIAN_PROJECTS` in `mcp-policy-check.sh` (currently `PLAN`, `DENGS`, `DATA`, `MJB`). A read that names a project or issue is allowed only when its key is on that list; every other project is denied with `project_not_in_allowlist` before the call reaches Atlassian. The key is taken from the prefix of an `issueIdOrKey` (`PLAN-12` → `PLAN`), from a `projectIdOrKey`, or from the project clause of a `searchJiraIssuesUsingJql` query. Keys are compared case-insensitively.
+
+Two cases fail closed (denied), because the hook cannot resolve them without calling Atlassian: a bare numeric issue id or project id (use the `KEY-123` / `KEY` form instead), and a JQL query that is not bounded to allowlisted projects. A JQL query is accepted only when it is AND-only (no `OR`, no `NOT`, so every clause is conjunctive and a positive project restriction bounds the whole result set) and carries a `project = KEY` or `project in (KEY, ...)` clause naming only allowlisted keys. This deliberately rejects some safe-but-complex queries rather than risk allowing one that escapes the allowlist. The cross-project tools that take no project key (`getVisibleJiraProjects`, `lookupJiraAccountId`, `getIssueLinkTypes`, and the two shared tools) are not bound by the project allowlist, since it cannot express "list only these projects". To change which projects are readable, edit `ATLASSIAN_PROJECTS` and redeploy the hook.
+
+The full Atlassian tool catalogue, with the permission group and OAuth scope for each tool, is at <https://support.atlassian.com/atlassian-rovo-mcp-server/docs/supported-tools/>. An Atlassian organisation admin can also revoke whole permission groups (for example `write_jira`) at source in the admin console, which is independent of this hook and worth pairing with it for defence in depth.
+
+### Revocation
+
+To revoke Claude Code's access to your Atlassian account:
+
+1. Sign in to <https://id.atlassian.com>.
+2. Go to **Account settings → Connected apps** (or **Authorized apps**, depending on UI version).
+3. Find the Claude Code / Anthropic entry and click **Revoke access**.
+
+The next `/mcp` connection attempt will require re-consent.
+
+### Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `/mcp` shows `atlassian` as `disconnected` and `Connect` does nothing | Browser handler not registered, or the Atlassian login page is blocked by a corporate proxy | Try again from a network that can reach `id.atlassian.com` and `mcp.atlassian.com`. If your browser does not auto-open, copy the URL from the Claude Code log |
+| `Connect` opens the browser but the page is blank or shows an Atlassian error | Org-level Remote MCP / Rovo not enabled, or your Atlassian account does not have access to the requested product | Contact an Atlassian admin (max.levine@mhiuk.org / edward@mhiuk.org) to confirm the feature is enabled and your account is provisioned |
+| `mcp__atlassian__*` tool calls fail with `403` or `401` after a successful connect | OAuth scope mismatch: the action requires a scope you did not grant | Disconnect via `/mcp`, reconnect, and grant the missing scope on the consent screen |
+| `mcp.atlassian.com` requests blocked at the network layer | Hook or sandbox not yet updated on this machine | Run `update_ai_governance` and retry, then confirm `mcp.atlassian.com` is in the deployed `managed-settings.json` `network.allowedDomains` |
+| An `mcp__atlassian__<tool>` call is denied with "not in the policy allowlist" | The tool is intentionally blocked: the allowlist permits Jira reads only | Expected for write tools and non-Jira products. If you genuinely need a tool, propose adding it to the `is_allowed` function in `mcp-policy-check.sh` through the usual PR process |
+| A read is denied with "Jira project not in the policy allowlist" | The project is not on `ATLASSIAN_PROJECTS`, or a JQL query is not bounded to allowlisted projects | Use a `KEY-123` issue key or `KEY` project key from an allowlisted project, and write JQL as an AND-only query with a `project = KEY` / `project in (...)` clause. To read a new project, propose adding its key to `ATLASSIAN_PROJECTS` through the usual PR process |
+
+### Audit and visibility
+
+All Jira and Confluence actions made through this MCP appear in Atlassian's standard audit log, attributed to the signed-in engineer. There is no separate Claude Code audit log on the Atlassian side. On the Claude Code side, MCP tool calls appear in the conversation transcript as `mcp__atlassian__<toolname>` entries.
 
 ## Deployment
 
