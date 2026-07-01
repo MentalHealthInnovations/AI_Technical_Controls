@@ -23,11 +23,15 @@ git_ref="${1:-}"
 claude_config_dir="/Library/Application Support/ClaudeCode/"
 claude_hooks_dir="/opt/claude/hooks/"
 claude_bin_dir="/opt/claude/bin/"
+# Managed ("policy") skills load from a .claude/skills/ subdirectory INSIDE the managed
+# config dir (note the nested .claude), so this path is derived from $claude_config_dir
+# to stay correct across platforms. See the "Copying managed skills" step below.
+claude_skills_dir="${claude_config_dir}.claude/skills/"
 ai_governance_repo_dir="/tmp/AI_Technical_Controls"
 script_dest="/usr/local/bin/pull_claude_governance.sh"
 
 echo "Creating directories..."
-mkdir -p "$claude_config_dir" "$claude_hooks_dir" "$claude_bin_dir"
+mkdir -p "$claude_config_dir" "$claude_hooks_dir" "$claude_bin_dir" "$claude_skills_dir"
 
 rm -rf "$ai_governance_repo_dir"
 # Clone main by default. Integrity is enforced at the source: CODEOWNERS and branch
@@ -66,6 +70,22 @@ cp "$ai_governance_repo_dir/ClaudeCode/managed-mcp.json" "$claude_config_dir"
 
 echo "Copying CLAUDE.md..."
 cp "$ai_governance_repo_dir/ClaudeCode/CLAUDE.md" "$claude_config_dir"
+
+echo "Copying managed skills..."
+# Every folder with a SKILL.md under ClaudeCode/skills/ is deployed org-wide as a
+# managed ("policy") skill and applies to all users on this machine (no per-user
+# opt-in). Claude Code loads managed skills from a .claude/skills/ subdirectory INSIDE
+# the managed config dir (note the nested .claude), i.e. "$claude_skills_dir". That path
+# is the managed-skill load location used by the Claude Code skill loader ("policy
+# skills"); it was confirmed by reading the Claude Code binary, NOT from public docs, so
+# re-verify it after a Claude Code upgrade. Managed skills are privileged. They are exempt
+# from disableSkillShellExecution, so review them with the same scrutiny as the hooks.
+#
+# Same stale-file cleanup + recursive copy as the hooks below: rm any non-hidden file/dir
+# first so a skill removed from the repo stops being served on the fleet. Hidden files are
+# left alone.
+find "$claude_skills_dir" -mindepth 1 -not -path '*/.*' -delete 2>/dev/null || true
+cp -R "$ai_governance_repo_dir"/ClaudeCode/skills/. "$claude_skills_dir"
 
 echo "Copying hooks..."
 # Recursive (-R) because hooks now ship with a lib/ subdirectory containing

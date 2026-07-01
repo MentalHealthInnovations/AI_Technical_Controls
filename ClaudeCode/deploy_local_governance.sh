@@ -20,6 +20,10 @@ set -euo pipefail
 
 claude_config_dir="/Library/Application Support/ClaudeCode/"
 claude_hooks_dir="/opt/claude/hooks/"
+# Managed ("policy") skills deploy to a .claude/skills/ subdirectory INSIDE the managed
+# config dir (note the nested .claude); derived from claude_config_dir. Mirrors
+# pull_claude_governance.sh.
+claude_skills_dir="${claude_config_dir}.claude/skills/"
 
 # Directory this script lives in. Source files are resolved against it so the
 # script works from any working directory. This is the checkout's ClaudeCode/ dir.
@@ -41,9 +45,13 @@ if [[ ! -d "$script_dir/opt/claude/hooks" ]]; then
   echo "Expected $script_dir/opt/claude/hooks/ but it is missing. Is this the ClaudeCode/ directory of the repo?" >&2
   exit 1
 fi
+if [[ ! -d "$script_dir/skills" ]]; then
+  echo "Expected $script_dir/skills/ but it is missing. Is this the ClaudeCode/ directory of the repo?" >&2
+  exit 1
+fi
 
 echo "Creating directories..."
-mkdir -p "$claude_config_dir" "$claude_hooks_dir"
+mkdir -p "$claude_config_dir" "$claude_hooks_dir" "$claude_skills_dir"
 
 echo "Copying managed-settings.json..."
 cp "$script_dir/managed-settings.json" "$claude_config_dir"
@@ -58,6 +66,15 @@ echo "Copying hooks..."
 # Hidden files such as .DS_Store are left alone.
 find "$claude_hooks_dir" -mindepth 1 -not -path '*/.*' -delete 2>/dev/null || true
 cp -R "$script_dir"/opt/claude/hooks/. "$claude_hooks_dir"
+
+echo "Copying managed skills..."
+# Mirrors pull_claude_governance.sh. Every SKILL.md folder under ClaudeCode/skills/ is
+# deployed as a managed ("policy") skill, loaded from the nested .claude/skills/ path.
+# Delete first so a skill removed from the repo stops being served. Managed skills are
+# privileged (exempt from disableSkillShellExecution), so review them like hooks. See
+# ClaudeCode/skills/README.md.
+find "$claude_skills_dir" -mindepth 1 -not -path '*/.*' -delete 2>/dev/null || true
+cp -R "$script_dir"/skills/. "$claude_skills_dir"
 
 echo "Writing version stamp..."
 # Provenance stamp. Production pull_claude_governance.sh writes the bare deployed
