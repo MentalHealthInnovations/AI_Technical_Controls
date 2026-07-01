@@ -14,7 +14,7 @@ ClaudeCode/skills/
 ```
 
 Each skill is a folder with a `SKILL.md`. Set the `name:` frontmatter to a single
-space-free token in kebab-case that matches the folder name (e.g. `mhi-managed-skill-check`).
+space-free token in kebab-case that matches the folder name (e.g. `test-guardrails`).
 Claude Code uses `name:` verbatim as the `/`-menu command, so a value with spaces produces
 a broken command (only the text up to the first space is parsed as the command). Observed
 in Claude Code 2.1.185.
@@ -45,8 +45,16 @@ inline shell commands even though `managed-settings.json` sets
 `disableSkillShellExecution: true`. Review every skill added here with the same scrutiny
 as a governance hook: two-person / CODEOWNERS review, no untrusted inline execution.
 
+## Skills distributed here
+
+- **`test-guardrails`** — runs the governance guardrail regression suite against the
+  machine's *installed* policy. Manual-only (`disable-model-invocation: true`); invoke
+  with `/test-guardrails`.
+- **`ship-feature`** — one-shot feature delivery (sync main, branch, commit, test, open a
+  PR) for this governance repo's workflow. Manual-only; invoke with `/ship-feature`.
+
 ## Verifying deployment
 
-`mhi-managed-skill-check` is a deployment canary. After a governance pull, run
-`/mhi-managed-skill-check` in a Claude Code session on the target machine; it confirms
-managed skills are being delivered. It contains no shell execution.
+After a governance pull, open a fresh Claude Code session on the target machine and type
+`/` — the distributed skills appear in the menu (e.g. `/test-guardrails`). Managed-skill
+delivery was confirmed end to end on macOS with Claude Code 2.1.185.
