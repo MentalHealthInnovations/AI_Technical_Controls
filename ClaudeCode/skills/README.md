@@ -13,8 +13,11 @@ ClaudeCode/skills/
     └── SKILL.md        # required; frontmatter + instructions
 ```
 
-Each skill is a folder with a `SKILL.md`. The folder name is the skill's default name
-and its `/`-menu command.
+Each skill is a folder with a `SKILL.md`. Set the `name:` frontmatter to a single
+space-free token in kebab-case that matches the folder name (e.g. `mhi-managed-skill-check`).
+Claude Code uses `name:` verbatim as the `/`-menu command, so a value with spaces produces
+a broken command (only the text up to the first space is parsed as the command). Observed
+in Claude Code 2.1.185.
 
 ## Where it lands on disk
 

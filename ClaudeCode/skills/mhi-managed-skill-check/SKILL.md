@@ -1,5 +1,5 @@
 ---
-name: MHI Managed Skill Check
+name: mhi-managed-skill-check
 description: >-
   Deployment canary for MHI org-managed ("policy") Claude Code skills. Confirms
   that a skill deployed to the managed config directory has loaded for this
