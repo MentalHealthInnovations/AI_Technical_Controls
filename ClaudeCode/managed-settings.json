@@ -1,13 +1,14 @@
 {
   "allowedChannelPlugins": [],
   "allowedHttpHookUrls": [],
-  "allowedMcpServers": [],
+  "_comment_allowedMcpServers": "Controls which MCP servers may CONNECT. Which of a connected server's TOOLS may run is a separate, default-deny allowlist that lives in /opt/claude/hooks/mcp-policy-check.sh (see its `is_allowed` function), not here: that hook is the sole consumer of the tool allowlist, so it is kept inline there rather than split across two files.",
+  "allowedMcpServers": [{"serverName": "atlassian"}],
   "allowManagedHooksOnly": true,
   "allowManagedMcpServersOnly": true,
   "allowManagedPermissionRulesOnly": true,
   "alwaysThinkingEnabled": false,
   "channelsEnabled": false,
-  "companyAnnouncements": ["You must read and adhere to the MHI Use of Artificial Intelligence policy at https://mentalhealthinnovations.atlassian.net/wiki/spaces/MPSC/pages/4485349381/MHI+Use+of+Artificial+Intelligence. See technical controls at https://github.com/MentalHealthInnovations/AI_Governance"],
+  "companyAnnouncements": ["You must read and adhere to the MHI Use of Artificial Intelligence policy at https://mentalhealthinnovations.atlassian.net/wiki/spaces/MPSC/pages/4485349381/MHI+Use+of+Artificial+Intelligence. See technical controls at https://github.com/MentalHealthInnovations/AI_Technical_Controls"],
   "disableAutoMode": "disable",
   "disableDeepLinkRegistration": "disable",
   "disableSkillShellExecution": true,
@@ -88,8 +89,6 @@
 
       "Edit(./.git/hooks/**)",
       "Edit(./.git/config)",
-      "Edit(./.git/HEAD)",
-      "Edit(./.git/ORIG_HEAD)",
       "Edit(./.git/packed-refs)",
       "Edit(./.husky/**)",
       "Edit(./.pre-commit-config.yaml)",
@@ -118,8 +117,6 @@
 
       "Write(./.git/hooks/**)",
       "Write(./.git/config)",
-      "Write(./.git/HEAD)",
-      "Write(./.git/ORIG_HEAD)",
       "Write(./.git/packed-refs)",
       "Write(./.husky/**)",
       "Write(/Library/Application Support/ClaudeCode/**)",
@@ -235,8 +232,16 @@
         "learn.microsoft.com",
         "community.jamf.com",
         "docs.aws.amazon.com",
+        "pricing.us-east-1.amazonaws.com",
         "developer.salesforce.com",
-        "docs.github.com"
+        "help.salesforce.com",
+        "resources.docs.salesforce.com",
+        "architect.salesforce.com",
+        "docs.github.com",
+        "mcp.atlassian.com",
+        "support.atlassian.com",
+        "developer.atlassian.com",
+        "community.atlassian.com"
       ],
       "_comment_webfetchPathScopes": "WebFetch-only path tightening, read solely by webfetch-policy-check.sh. Each key is a host that also appears in allowedDomains; its value is a path prefix that WebFetch URLs to that host must fall under (exact match or a '/'-bounded child). Hosts not listed here are unrestricted. This does NOT constrain Bash network egress — the OS sandbox sees host only and allows every path — so treat it as a WebFetch convenience/blast-radius control, not a hard boundary.",
       "_webfetchPathScopes": {
@@ -282,6 +287,15 @@
           {
             "type": "command",
             "command": "/opt/claude/hooks/pii-content-sniff.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/claude/hooks/mcp-policy-check.sh"
           }
         ]
       },

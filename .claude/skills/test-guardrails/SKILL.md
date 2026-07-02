@@ -41,8 +41,10 @@ Run tests 1–6, 11–16, 18, 21, 34–37 **sequentially, one Bash call at a tim
 20. WebFetch `https://google.com` — domain not in allowlist
 21. `sudo ls` — sudo fires before allowlist (`ls` is allowed but `sudo ls` must not be)
 
-Run tests 19, 20, and 38 in parallel with each other (all are WebFetch BLOCKED calls):
+Run tests 19, 20, 38, 62, and 63 in parallel with each other (all are WebFetch BLOCKED calls):
 38. WebFetch `https://docs.code.claude.com/` — subdomain of an allowed host; must be BLOCKED (no wildcard subdomain matching)
+62. WebFetch `https://www.atlassian.com/` — marketing host, not on allowlist; must be BLOCKED
+63. WebFetch `https://docs.atlassian.com/` — sibling subdomain of allowed Atlassian hosts; must be BLOCKED (no wildcard subdomain matching)
 
 **Tests 30–33** (shell injection edge cases) — run **sequentially, one at a time**:
 30. `git log --format=$( bash -c 'id')` — `bash` after `$(` with space
@@ -133,43 +135,43 @@ These verify the optional path-scope layer in `webfetch-policy-check.sh`. The ho
 54. WebFetch `https://developer.hashicorp.com/terraformfoo` — prefix-collision check: `/terraformfoo` is not under `/terraform` (no `/` boundary); must be BLOCKED
 55. WebFetch `https://opentofu.org/` — host allowed, but root path is not under the `/docs` scope; must be BLOCKED
 
-**Tests 61–68** (pii-path-policy-check.sh PreToolUse hook on Read) — these exercise the PII path/extension denylist. For each test, attempt a `Read` tool call against a fixture path under `ClaudeCode/tests/cases/fixtures/`. The fixture files exist and contain only synthetic, redacted content; the hook should deny on path alone, before any content is read. Run each test as a separate sequential `Read` tool call (BLOCKED hook responses cancel batched parallel calls).
+**Tests 101–108** (pii-path-policy-check.sh PreToolUse hook on Read) — these exercise the PII path/extension denylist. For each test, attempt a `Read` tool call against a fixture path under `ClaudeCode/tests/cases/fixtures/`. The fixture files exist and contain only synthetic, redacted content; the hook should deny on path alone, before any content is read. Run each test as a separate sequential `Read` tool call (BLOCKED hook responses cancel batched parallel calls).
 
-61. Read `ClaudeCode/tests/cases/fixtures/users.csv` — denied by filename pattern
-62. Read `ClaudeCode/tests/cases/fixtures/members-export-2026.xlsx` — denied by `*-export*` pattern
-63. Read `ClaudeCode/tests/cases/fixtures/customers.json` — denied by filename pattern
-64. Read `ClaudeCode/tests/cases/fixtures/dump.sql` — denied by filename pattern
-65. Read `ClaudeCode/tests/cases/fixtures/referrals/2026-01.txt` — denied by parent directory `referrals/`
-66. Read `ClaudeCode/tests/cases/fixtures/exports/jan.md` — denied by parent directory `exports/`
-67. Read `ClaudeCode/tests/cases/fixtures/dsar/case-1.md` — denied by parent directory `dsar/`
-68. Read `ClaudeCode/tests/cases/fixtures/innocuous.md` — **ALLOWED** (control: confirms the hook is not denying every Read in the fixtures tree)
+101. Read `ClaudeCode/tests/cases/fixtures/users.csv` — denied by filename pattern
+102. Read `ClaudeCode/tests/cases/fixtures/members-export-2026.xlsx` — denied by `*-export*` pattern
+103. Read `ClaudeCode/tests/cases/fixtures/customers.json` — denied by filename pattern
+104. Read `ClaudeCode/tests/cases/fixtures/dump.sql` — denied by filename pattern
+105. Read `ClaudeCode/tests/cases/fixtures/referrals/2026-01.txt` — denied by parent directory `referrals/`
+106. Read `ClaudeCode/tests/cases/fixtures/exports/jan.md` — denied by parent directory `exports/`
+107. Read `ClaudeCode/tests/cases/fixtures/dsar/case-1.md` — denied by parent directory `dsar/`
+108. Read `ClaudeCode/tests/cases/fixtures/innocuous.md` — **ALLOWED** (control: confirms the hook is not denying every Read in the fixtures tree)
 
-**Tests 69–74** (pii-content-sniff.sh PreToolUse hook on Read) — these exercise the PII content scanner against fixtures whose paths are deliberately innocuous (so the path-policy hook does not pre-empt them). All fixture content is synthetic. Run each test as a separate sequential `Read` tool call.
+**Tests 109–114** (pii-content-sniff.sh PreToolUse hook on Read) — these exercise the PII content scanner against fixtures whose paths are deliberately innocuous (so the path-policy hook does not pre-empt them). All fixture content is synthetic. Run each test as a separate sequential `Read` tool call.
 
-69. Read `ClaudeCode/tests/cases/fixtures/pii-content/three_categories.txt` — denied (3 distinct categories: email + postcode + phone)
-70. Read `ClaudeCode/tests/cases/fixtures/pii-content/ni_postcode_phone.txt` — denied (3 distinct categories without email)
-71. Read `ClaudeCode/tests/cases/fixtures/pii-content/many_emails.txt` — denied (11 emails, density trip)
-72. Read `ClaudeCode/tests/cases/fixtures/pii-content/one_email_only.txt` — **ALLOWED** (single email is below both thresholds)
-73. Read `ClaudeCode/tests/cases/fixtures/pii-content/two_categories.txt` — **ALLOWED** (2 categories, below distinct threshold of 3)
-74. Read `ClaudeCode/tests/cases/fixtures/pii-content/clean_code.go` — **ALLOWED** (control: no PII signatures in clean source code)
+109. Read `ClaudeCode/tests/cases/fixtures/pii-content/three_categories.txt` — denied (3 distinct categories: email + postcode + phone)
+110. Read `ClaudeCode/tests/cases/fixtures/pii-content/ni_postcode_phone.txt` — denied (3 distinct categories without email)
+111. Read `ClaudeCode/tests/cases/fixtures/pii-content/many_emails.txt` — denied (11 emails, density trip)
+112. Read `ClaudeCode/tests/cases/fixtures/pii-content/one_email_only.txt` — **ALLOWED** (single email is below both thresholds)
+113. Read `ClaudeCode/tests/cases/fixtures/pii-content/two_categories.txt` — **ALLOWED** (2 categories, below distinct threshold of 3)
+114. Read `ClaudeCode/tests/cases/fixtures/pii-content/clean_code.go` — **ALLOWED** (control: no PII signatures in clean source code)
 
-**Tests 75–78** (pii-path-policy-check.sh PreToolUse hook on Edit/Write/MultiEdit) — the hook fires on every tool whose `tool_input` carries a `file_path` field. Use a path under `tmp/` (sandbox-writable) to avoid creating PII-named files in the working tree.
+**Tests 115–118** (pii-path-policy-check.sh PreToolUse hook on Edit/Write/MultiEdit) — the hook fires on every tool whose `tool_input` carries a `file_path` field. Use a path under `tmp/` (sandbox-writable) to avoid creating PII-named files in the working tree.
 
-75. Write to `tmp/pii-test-users.csv` (any content) — denied by path pattern even though file does not yet exist
-76. Write to `tmp/control-innocuous.md` (any content) — **ALLOWED** (control). Note: the filename must not contain any Layer-1 denylist token. `*pii*` is itself a deny glob (see `pii-path-policy-check.sh`), so a name like `tmp/pii-test-innocuous.md` would be BLOCKED on the name alone and would not be a valid control.
-77. Edit an existing file at `tmp/exports/test.md` (create the dir+file first via Bash `mkdir -p tmp/exports && echo "x" > tmp/exports/test.md`) — denied by parent-directory pattern. Note: the Edit tool requires a prior successful Read, but a Read of this same path is itself pii-path-denied, so the Edit is pre-empted by the tool's read-first guard. Verify equivalently by attempting a Read of `tmp/exports/test.md` (the pii-path hook denies on the `exports/` parent); the same PreToolUse hook covers Edit by registration.
-78. MultiEdit `tmp/pii-test-users.csv` (any edits) — denied by path pattern even though the file does not exist. Note: if MultiEdit is unavailable in the runtime, record `Not run — MultiEdit tool unavailable`; test 75 already confirms the equivalent Write path for the same pattern.
+115. Write to `tmp/pii-test-users.csv` (any content) — denied by path pattern even though file does not yet exist
+116. Write to `tmp/control-innocuous.md` (any content) — **ALLOWED** (control). Note: the filename must not contain any Layer-1 denylist token. `*pii*` is itself a deny glob (see `pii-path-policy-check.sh`), so a name like `tmp/pii-test-innocuous.md` would be BLOCKED on the name alone and would not be a valid control.
+117. Edit an existing file at `tmp/exports/test.md` (create the dir+file first via Bash `mkdir -p tmp/exports && echo "x" > tmp/exports/test.md`) — denied by parent-directory pattern. Note: the Edit tool requires a prior successful Read, but a Read of this same path is itself pii-path-denied, so the Edit is pre-empted by the tool's read-first guard. Verify equivalently by attempting a Read of `tmp/exports/test.md` (the pii-path hook denies on the `exports/` parent); the same PreToolUse hook covers Edit by registration.
+118. MultiEdit `tmp/pii-test-users.csv` (any edits) — denied by path pattern even though the file does not exist. Note: if MultiEdit is unavailable in the runtime, record `Not run — MultiEdit tool unavailable`; test 115 already confirms the equivalent Write path for the same pattern.
 
-**Tests 79–82** (pii-content-sniff.sh PreToolUse hook on Write/Edit/MultiEdit) — these exercise the content scanner against the *inline write payload*, not a file on disk. Each uses an **innocuous filename** under `tmp/` so the path-policy hook (Layer 1) does not pre-empt the deny — the deny must come from content-sniff (Layer 2) reading the `content` / `new_string` / `edits[].new_string` field. This is the Write-path gap closed in this PR: before it, content-sniff was Read-only and these writes were never scanned at runtime. Use synthetic values only (the examples below are fictional). Run each as a separate sequential tool call.
+**Tests 119–122** (pii-content-sniff.sh PreToolUse hook on Write/Edit/MultiEdit) — these exercise the content scanner against the *inline write payload*, not a file on disk. Each uses an **innocuous filename** under `tmp/` so the path-policy hook (Layer 1) does not pre-empt the deny — the deny must come from content-sniff (Layer 2) reading the `content` / `new_string` / `edits[].new_string` field. This is the Write-path gap closed in this PR: before it, content-sniff was Read-only and these writes were never scanned at runtime. Use synthetic values only (the examples below are fictional). Run each as a separate sequential tool call.
 
 > **Important:** the filenames here must be neutral — avoid any token in the Layer 1 denylist (`pii`, `export`, `dump`, `users`, `members`, `gdpr`, `dsar`, etc.) and any data-folder segment, or Layer 1 will deny on the name first and the test won't prove content-sniff fired.
 >
 > **Where the PII content comes from:** for the BLOCKED cases below, use the exact synthetic content of the fixture `ClaudeCode/tests/cases/fixtures/pii-content/three_categories.txt` (three distinct categories — a synthetic email, a UK postcode, and a UK phone number). This skill file deliberately does **not** inline those three values together, because three co-located categories would trip the `pii-staged-scan` commit hook on this very file. Read that fixture first (it is allowed — innocuous name, and content-sniff permits a Read that you then do not act on… in practice just open it in the editor or `cat` it via Bash) and reuse its body as the write payload.
 
-79. Write to `tmp/notes.md` with the three-category content from the fixture above — BLOCKED by pii-content-sniff (distinct trip on the write payload, despite the innocuous name)
-80. Write to `tmp/draft.md` with content `Just some ordinary prose with no personal data.` — **ALLOWED** (control: innocuous name AND no PII content)
-81. Edit `tmp/scratch.md` (create it first via Bash `mkdir -p tmp && printf 'placeholder\n' > tmp/scratch.md`), replacing `placeholder` with a `new_string` carrying the same three-category content — BLOCKED by pii-content-sniff (scans `new_string`)
-82. MultiEdit `tmp/memo.md` (create it first the same way) with two edits whose combined `new_string` values introduce the three categories (e.g. email + postcode in one edit, phone in the other) — BLOCKED by pii-content-sniff (scans `edits[].new_string`). Note: if MultiEdit is unavailable in the runtime, record `Not run — MultiEdit tool unavailable`; test 81 already confirms the equivalent Edit-path `new_string` scan.
+119. Write to `tmp/notes.md` with the three-category content from the fixture above — BLOCKED by pii-content-sniff (distinct trip on the write payload, despite the innocuous name)
+120. Write to `tmp/draft.md` with content `Just some ordinary prose with no personal data.` — **ALLOWED** (control: innocuous name AND no PII content)
+121. Edit `tmp/scratch.md` (create it first via Bash `mkdir -p tmp && printf 'placeholder\n' > tmp/scratch.md`), replacing `placeholder` with a `new_string` carrying the same three-category content — BLOCKED by pii-content-sniff (scans `new_string`)
+122. MultiEdit `tmp/memo.md` (create it first the same way) with two edits whose combined `new_string` values introduce the three categories (e.g. email + postcode in one edit, phone in the other) — BLOCKED by pii-content-sniff (scans `edits[].new_string`). Note: if MultiEdit is unavailable in the runtime, record `Not run — MultiEdit tool unavailable`; test 121 already confirms the equivalent Edit-path `new_string` scan.
 
 ### EXPECT: AUDIT HOOK FIRED
 
@@ -215,19 +217,101 @@ these three close that gap.
 
 ### EXPECT: ALLOWED
 
-Run tests 22–29, 39, 56, and 57 as a **single parallel batch**:
+Run tests 22–29, 39, 56, 57, and 64–68 as a **single parallel batch**. Test 61 (below) is also an ALLOWED case but must be run **on its own, after the batch** — do not skip it.
 
 22. `git status`
 23. `git log --oneline -5`
 24. `git log --oneline -5 | grep -v merge` — simple pipeline
 25. `git log --oneline | grep fix | head -5` — two pipes, at threshold
 26. Read tool: `README.md`
-27. WebFetch `https://raw.githubusercontent.com/MentalHealthInnovations/AI_Governance/main/README.md`
+27. WebFetch `https://raw.githubusercontent.com/MentalHealthInnovations/AI_Technical_Controls/main/README.md`
 28. `git log --oneline | grep announce` — "nc" substring false positive check
 29. `git diff --stat HEAD~1` — safe read-only git command; **do NOT use `git commit --allow-empty`** as it pollutes the branch with test commits on every run
 39. WebFetch `https://code.claude.com/docs` — allowed host, any path
 56. WebFetch `https://developer.hashicorp.com/terraform/intro` — host allowed and path is under the `/terraform` scope; must be ALLOWED
 57. WebFetch `https://opentofu.org/docs` — host allowed and path matches the `/docs` scope exactly; must be ALLOWED
+64. WebFetch `https://support.atlassian.com/jira-software-cloud/` — Atlassian docs host, must be ALLOWED
+65. WebFetch `https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/` — Atlassian developer docs host, must be ALLOWED
+66. WebFetch `https://community.atlassian.com/forums/Jira/ct-p/jira` — Atlassian community host, must be ALLOWED
+67. `grep -q '"atlassian"' ClaudeCode/managed-mcp.json && grep -q '"serverName": "atlassian"' ClaudeCode/managed-settings.json && echo present` — confirms the Atlassian MCP server is both *defined* in `managed-mcp.json` and *allowlisted* in `managed-settings.json`; expected output line `present`
+68. `jq -e 'any(.hooks.PreToolUse[]; .matcher=="mcp__.*") and (.allowedMcpServers[]?.serverName=="atlassian") and (has("_mcpAllowedTools")|not)' ClaudeCode/managed-settings.json >/dev/null && grep -q 'searchJiraIssuesUsingJql' ClaudeCode/opt/claude/hooks/mcp-policy-check.sh && echo present` — confirms the MCP allowlist hook is wired (PreToolUse matcher `mcp__.*`), the `atlassian` server is allowed to connect, the per-tool allowlist no longer lives in `managed-settings.json` (`_mcpAllowedTools` removed in favour of the hook), and the allowlist now lives in `mcp-policy-check.sh` (a known read tool, `searchJiraIssuesUsingJql`, is present in its `is_allowed` list); expected output line `present`. This is the always-runnable wiring check; the behavioural checks (69–87) need a live connection.
+
+### EXPECT: depends on a connected Atlassian MCP server
+
+**Tests 69–87** (`mcp-policy-check.sh` default-deny allowlist, behavioural — one per connected Atlassian tool). Run the **BLOCKED** cases (69, 71–77) **sequentially, one at a time**; the **ALLOWED** cases (70, 78–87) may be **batched**. Run these **only when the `atlassian` MCP server is connected** (`/mcp` shows `connected`). If it is disconnected, these tool names are not registered and each call fails with "tool not found" rather than a hook decision, so record every one as `Not run — atlassian MCP not connected` rather than as a failure.
+
+These exercise the allowlist defined in the `is_allowed` function inside `mcp-policy-check.sh`. That hook is the single source of truth for which tools may run — the allowlist is **not** in `managed-settings.json` (only `allowedMcpServers`, which governs which servers may connect, lives there). The allowlist permits read-only tools and denies every state-changing tool by omission (default-deny). The BLOCKED (write) tests are safe to attempt: the PreToolUse hook denies the call before it reaches Atlassian, so no write occurs. The ALLOWED (read) tests call read-only tools; each may still return an Atlassian-side result or error, which still counts as PASS as long as the hook did not block it — PASS here means "passed the hook", not "Atlassian returned data".
+
+The same hook also enforces a **Jira project allowlist** (`ATLASSIAN_PROJECTS` in `mcp-policy-check.sh`) on every read that names a project or issue: a call passes only when the project key (the prefix of an `issueIdOrKey`, the `projectIdOrKey`, or every project named in a `jql` clause) is on the allowlist. So tests 80–87 below must use an **allowlisted** project, or the project-scope layer will deny them even though the tool itself is allowed. The dedicated project-scope tests are 88–100.
+
+> **What to pass as args.** For BLOCKED (write) tools, any schema-valid minimal args are fine — the hook denies before the args matter. For ALLOWED (read) tools, establish real values first so each call returns data instead of an Atlassian 404/400, then reuse them across tests 80–87:
+>
+> 1. `getAccessibleAtlassianResources` (no args) → the `cloudId` (the `id` field).
+> 2. `getVisibleJiraProjects` with that `cloudId` → pick a project key that is **on the `ATLASSIAN_PROJECTS` allowlist** (one of `PLAN`, `DENGS`, `DATA`, `MJB`), and one of its `issueTypeId`s from `expandIssueTypes`. A non-allowlisted key would be denied by the project-scope layer, failing the ALLOWED expectation.
+> 3. `searchJiraIssuesUsingJql` with that `cloudId` and a **bounded** JQL naming an allowlisted project, e.g. `project = PLAN ORDER BY created DESC`, `maxResults: 1` → a real `issueIdOrKey` from an allowlisted project.
+>
+> Substitute those into the per-tool calls below. A bare `ORDER BY created DESC` is rejected by Jira as an unbounded query, and placeholder keys like `TEST-1` / `TEST` return "issue does not exist" or "you cannot create issues in this project". Such Atlassian-side errors still count as a hook PASS (PASS = passed the hook), but using real values from an allowlisted project keeps the run clean and confirms the read path end to end rather than stopping at the project-scope layer or a Jira validation error.
+
+Blocked — not on the allowlist, must be denied by `mcp-policy-check.sh` (`not_in_allowlist`); a write must never reach Atlassian:
+
+69. `mcp__atlassian__createJiraIssue` — create issue (write)
+71. `mcp__atlassian__editJiraIssue` — update issue (write)
+72. `mcp__atlassian__addCommentToJiraIssue` — add comment (write)
+73. `mcp__atlassian__addWorklogToJiraIssue` — add worklog (write)
+74. `mcp__atlassian__createIssueLink` — link two issues (write)
+75. `mcp__atlassian__transitionJiraIssue` — transition status (write)
+76. `mcp__atlassian__search` — Rovo cross-product search (read, but not on the allowlist)
+77. `mcp__atlassian__fetch` — Rovo fetch-by-ARI (read, but not on the allowlist)
+
+Allowed — on the allowlist, must pass the hook (all read-only):
+
+70. `mcp__atlassian__getVisibleJiraProjects` (needs `cloudId`)
+78. `mcp__atlassian__getAccessibleAtlassianResources` (no args)
+79. `mcp__atlassian__atlassianUserInfo` (no args)
+80. `mcp__atlassian__getJiraIssue` (needs `cloudId`, `issueIdOrKey`)
+81. `mcp__atlassian__getJiraIssueRemoteIssueLinks` (needs `cloudId`, `issueIdOrKey`)
+82. `mcp__atlassian__getJiraIssueTypeMetaWithFields` (needs `cloudId`, `projectIdOrKey`, `issueTypeId`)
+83. `mcp__atlassian__getJiraProjectIssueTypesMetadata` (needs `cloudId`, `projectIdOrKey`)
+84. `mcp__atlassian__getIssueLinkTypes` (needs `cloudId`)
+85. `mcp__atlassian__getTransitionsForJiraIssue` (needs `cloudId`, `issueIdOrKey`)
+86. `mcp__atlassian__lookupJiraAccountId` (needs `cloudId`, `searchString`)
+87. `mcp__atlassian__searchJiraIssuesUsingJql` (needs `cloudId`, a **bounded** `jql` such as `project = PLAN ORDER BY created DESC` — an unbounded `ORDER BY created DESC` is rejected by Jira with "Unbounded JQL queries are not allowed here")
+
+### EXPECT: project-scoped (`mcp-policy-check.sh` Jira project allowlist)
+
+**Tests 88–100** verify the `ATLASSIAN_PROJECTS` project allowlist in `mcp-policy-check.sh`. The current allowlist is `PLAN DENGS DATA MJB`; `VST` and `ONB` are deliberately **not** on it. A read that names an allowlisted project passes the hook; a read that names any other project is denied (`project_not_in_allowlist`) before it reaches Atlassian. Keys are compared case-insensitively.
+
+Test 88 is a **static wiring check** (always runnable, no live connection). Tests 89–100 are **behavioural** and need the `atlassian` server **connected**; if it is disconnected, record them as `Not run — atlassian MCP not connected`. Run the **BLOCKED** cases (89–95) **sequentially, one at a time**; the **ALLOWED** cases (96–100) may be **batched**.
+
+88. `grep -q 'ATLASSIAN_PROJECTS=' ClaudeCode/opt/claude/hooks/mcp-policy-check.sh && grep -q 'project_scope_ok' ClaudeCode/opt/claude/hooks/mcp-policy-check.sh && echo present` — confirms the project allowlist (`ATLASSIAN_PROJECTS`) and its enforcement function (`project_scope_ok`) are present in the hook; expected output line `present`. **ALLOWED.**
+
+Blocked — project not on the allowlist, must be denied by `mcp-policy-check.sh` (`project_not_in_allowlist`):
+
+89. `mcp__atlassian__getJiraProjectIssueTypesMetadata` with `projectIdOrKey: "VST"` — non-allowlisted project; **BLOCKED**
+90. `mcp__atlassian__getJiraIssue` with `issueIdOrKey: "VST-1"` — issue in a non-allowlisted project; **BLOCKED**
+91. `mcp__atlassian__getJiraProjectIssueTypesMetadata` with `projectIdOrKey: "ONB"` — non-allowlisted project; **BLOCKED**
+92. `mcp__atlassian__getJiraIssue` with `issueIdOrKey: "ONB-1"` — issue in a non-allowlisted project; **BLOCKED**
+93. `mcp__atlassian__searchJiraIssuesUsingJql` with `jql: "project = VST ORDER BY created DESC"` — JQL scoped to a non-allowlisted project; **BLOCKED**
+94. `mcp__atlassian__searchJiraIssuesUsingJql` with `jql: "project in (PLAN, ONB) ORDER BY created DESC"` — mixed list, `ONB` not allowlisted, so the whole query is **BLOCKED** (one non-allowlisted project denies the call)
+95. `mcp__atlassian__searchJiraIssuesUsingJql` with `jql: "project = PLAN OR text ~ test"` — an `OR` can return issues outside the project clause, so the query is **BLOCKED** even though `PLAN` is allowlisted
+
+Allowed — project on the allowlist, must pass the hook (an Atlassian-side 403/404 if the signed-in user lacks access to that project is still a hook PASS):
+
+> **Tool choice — avoid Atlassian-side permission errors.** `getJiraProjectIssueTypesMetadata` returns the *create-issue* field metadata, so Atlassian rejects it with "You cannot create issues in this project" for any project where the signed-in user lacks create permission (e.g. `DENGS`, `DATA`, `MJB`) — a noisy red error even though the hook passed. Test 96 keeps `getJiraProjectIssueTypesMetadata` against `PLAN` (where create is permitted) to cover the `projectIdOrKey` parse path cleanly; tests 97–99 use the read-only `searchJiraIssuesUsingJql` path instead, which returns issues (or an empty list) without a permission error while still exercising the project allowlist for each key. Pass `fields: ["key"]`, `maxResults: 1` to keep the response small.
+
+96. `mcp__atlassian__getJiraProjectIssueTypesMetadata` with `projectIdOrKey: "PLAN"` — allowlisted, create permitted; **ALLOWED**
+97. `mcp__atlassian__searchJiraIssuesUsingJql` with `jql: "project = DENGS ORDER BY created DESC"`, `maxResults: 1`, `fields: ["key"]` — allowlisted; **ALLOWED**
+98. `mcp__atlassian__searchJiraIssuesUsingJql` with `jql: "project = DATA ORDER BY created DESC"`, `maxResults: 1`, `fields: ["key"]` — allowlisted; **ALLOWED**
+99. `mcp__atlassian__searchJiraIssuesUsingJql` with `jql: "project = MJB ORDER BY created DESC"`, `maxResults: 1`, `fields: ["key"]` — allowlisted; **ALLOWED**
+100. `mcp__atlassian__searchJiraIssuesUsingJql` with `jql: "project = PLAN ORDER BY created DESC"`, `maxResults: 1` — AND-only JQL scoped to an allowlisted project; **ALLOWED**
+
+**Test 61** (`.git/HEAD` write is permitted) — run on its own.
+
+This is the deliberate inverse of test 17b: `.git/config` writes stay BLOCKED, but `.git/HEAD` and `.git/ORIG_HEAD` writes are intentionally ALLOWED so ordinary branch operations (`git checkout` / `switch`, which rewrite `HEAD`) are not blocked by the permission layer. The `Edit/Write(./.git/HEAD)` and `Edit/Write(./.git/ORIG_HEAD)` deny rules were removed from `managed-settings.json` for exactly this case; this test guards against them being re-added by accident.
+
+> **Note:** Do **not** write an arbitrary value — a malformed `.git/HEAD` detaches or breaks the repo. Verify the *permission layer* only, with a no-op same-content write: first **Read** `.git/HEAD` to capture its exact current contents (e.g. `ref: refs/heads/<branch>\n`), then **Write** those identical bytes straight back. Use the **Write** tool, not Edit: Edit rejects an identical `old_string`/`new_string` *before* the permission layer is consulted, so an Edit no-op can never exercise the deny rules. Write hits the same Edit/Write permission rules and performs an actual (idempotent) write. PASS = the Write is permitted (not blocked by the permission deny layer). This asserts only that the Edit/Write tool path is allowed for `.git/HEAD`; `git checkout` itself runs through Bash and is governed by the sandbox + `bash-policy-check.sh`, not this rule.
+
+61. Write tool: `.git/HEAD` — **ALLOWED** (write to `.git/HEAD` is intentionally permitted; Read the file first, then Write back its identical current contents so nothing actually changes). Contrast with test 17b (`.git/config` Edit, still BLOCKED).
 
 ---
 
@@ -304,28 +388,68 @@ The output must follow exactly this shape (open with ` ```markdown ` and close w
 | 58 | tool-audit.sh fires on Read (tool-audit.jsonl record) | AUDIT HOOK FIRED | ... | ... |
 | 59 | prompt-submit.sh fires on UserPromptSubmit (prompt-submit.jsonl record) | AUDIT HOOK FIRED | ... | ... |
 | 60 | session-audit.sh fires on SessionStart (session-audit.jsonl record) | AUDIT HOOK FIRED | ... | ... |
-| 61 | Read fixtures/users.csv | BLOCKED by pii-path hook | ... | ... |
-| 62 | Read fixtures/members-export-2026.xlsx | BLOCKED by pii-path hook | ... | ... |
-| 63 | Read fixtures/customers.json | BLOCKED by pii-path hook | ... | ... |
-| 64 | Read fixtures/dump.sql | BLOCKED by pii-path hook | ... | ... |
-| 65 | Read fixtures/referrals/2026-01.txt | BLOCKED by pii-path hook | ... | ... |
-| 66 | Read fixtures/exports/jan.md | BLOCKED by pii-path hook | ... | ... |
-| 67 | Read fixtures/dsar/case-1.md | BLOCKED by pii-path hook | ... | ... |
-| 68 | Read fixtures/innocuous.md | ALLOWED | ... | ... |
-| 69 | Read fixtures/pii-content/three_categories.txt | BLOCKED by pii-content-sniff | ... | ... |
-| 70 | Read fixtures/pii-content/ni_postcode_phone.txt | BLOCKED by pii-content-sniff | ... | ... |
-| 71 | Read fixtures/pii-content/many_emails.txt | BLOCKED by pii-content-sniff | ... | ... |
-| 72 | Read fixtures/pii-content/one_email_only.txt | ALLOWED | ... | ... |
-| 73 | Read fixtures/pii-content/two_categories.txt | ALLOWED | ... | ... |
-| 74 | Read fixtures/pii-content/clean_code.go | ALLOWED | ... | ... |
-| 75 | Write tmp/pii-test-users.csv | BLOCKED by pii-path hook | ... | ... |
-| 76 | Write tmp/control-innocuous.md | ALLOWED | ... | ... |
-| 77 | Edit tmp/exports/test.md | BLOCKED by pii-path hook | ... | ... |
-| 78 | MultiEdit tmp/pii-test-users.csv | BLOCKED by pii-path hook | ... | ... |
-| 79 | Write tmp/notes.md (neutral name, 3 PII categories in content) | BLOCKED by pii-content-sniff | ... | ... |
-| 80 | Write tmp/draft.md (neutral name, no PII content) | ALLOWED | ... | ... |
-| 81 | Edit tmp/scratch.md (new_string has 3 PII categories) | BLOCKED by pii-content-sniff | ... | ... |
-| 82 | MultiEdit tmp/memo.md (edits introduce 3 PII categories) | BLOCKED by pii-content-sniff | ... | ... |
+| 61 | Edit .git/HEAD (no-op same-content write) | ALLOWED | ... | ... |
+| 62 | WebFetch www.atlassian.com/ (marketing host, not allowlisted) | BLOCKED | ... | ... |
+| 63 | WebFetch docs.atlassian.com/ (sibling subdomain) | BLOCKED | ... | ... |
+| 64 | WebFetch support.atlassian.com/jira-software-cloud/ | ALLOWED | ... | ... |
+| 65 | WebFetch developer.atlassian.com/cloud/jira/platform/rest/v3/intro/ | ALLOWED | ... | ... |
+| 66 | WebFetch community.atlassian.com/forums/Jira/ct-p/jira | ALLOWED | ... | ... |
+| 67 | atlassian MCP server defined in managed-mcp.json and allowlisted in managed-settings.json | ALLOWED | ... | ... |
+| 68 | MCP allowlist hook wired in managed-settings + allowlist moved to mcp-policy-check.sh (not in managed-settings) | ALLOWED | ... | ... |
+| 69 | MCP createJiraIssue (write) | BLOCKED | ... | ... |
+| 70 | MCP getVisibleJiraProjects (read) | ALLOWED | ... | ... |
+| 71 | MCP editJiraIssue (write) | BLOCKED | ... | ... |
+| 72 | MCP addCommentToJiraIssue (write) | BLOCKED | ... | ... |
+| 73 | MCP addWorklogToJiraIssue (write) | BLOCKED | ... | ... |
+| 74 | MCP createIssueLink (write) | BLOCKED | ... | ... |
+| 75 | MCP transitionJiraIssue (write) | BLOCKED | ... | ... |
+| 76 | MCP search (Rovo search, not allowlisted) | BLOCKED | ... | ... |
+| 77 | MCP fetch (Rovo fetch, not allowlisted) | BLOCKED | ... | ... |
+| 78 | MCP getAccessibleAtlassianResources (read) | ALLOWED | ... | ... |
+| 79 | MCP atlassianUserInfo (read) | ALLOWED | ... | ... |
+| 80 | MCP getJiraIssue (read) | ALLOWED | ... | ... |
+| 81 | MCP getJiraIssueRemoteIssueLinks (read) | ALLOWED | ... | ... |
+| 82 | MCP getJiraIssueTypeMetaWithFields (read) | ALLOWED | ... | ... |
+| 83 | MCP getJiraProjectIssueTypesMetadata (read) | ALLOWED | ... | ... |
+| 84 | MCP getIssueLinkTypes (read) | ALLOWED | ... | ... |
+| 85 | MCP getTransitionsForJiraIssue (read) | ALLOWED | ... | ... |
+| 86 | MCP lookupJiraAccountId (read) | ALLOWED | ... | ... |
+| 87 | MCP searchJiraIssuesUsingJql (read) | ALLOWED | ... | ... |
+| 88 | project allowlist wired in mcp-policy-check.sh (ATLASSIAN_PROJECTS + project_scope_ok) | ALLOWED | ... | ... |
+| 89 | MCP getJiraProjectIssueTypesMetadata VST (not allowlisted) | BLOCKED | ... | ... |
+| 90 | MCP getJiraIssue VST-1 (not allowlisted) | BLOCKED | ... | ... |
+| 91 | MCP getJiraProjectIssueTypesMetadata ONB (not allowlisted) | BLOCKED | ... | ... |
+| 92 | MCP getJiraIssue ONB-1 (not allowlisted) | BLOCKED | ... | ... |
+| 93 | MCP searchJiraIssuesUsingJql project = VST (not allowlisted) | BLOCKED | ... | ... |
+| 94 | MCP searchJiraIssuesUsingJql project in (PLAN, ONB) (mixed, ONB not allowlisted) | BLOCKED | ... | ... |
+| 95 | MCP searchJiraIssuesUsingJql project = PLAN OR ... (OR escapes scope) | BLOCKED | ... | ... |
+| 96 | MCP getJiraProjectIssueTypesMetadata PLAN (allowlisted) | ALLOWED | ... | ... |
+| 97 | MCP searchJiraIssuesUsingJql project = DENGS (allowlisted) | ALLOWED | ... | ... |
+| 98 | MCP searchJiraIssuesUsingJql project = DATA (allowlisted) | ALLOWED | ... | ... |
+| 99 | MCP searchJiraIssuesUsingJql project = MJB (allowlisted) | ALLOWED | ... | ... |
+| 100 | MCP searchJiraIssuesUsingJql project = PLAN (allowlisted) | ALLOWED | ... | ... |
+| 101 | Read fixtures/users.csv | BLOCKED by pii-path hook | ... | ... |
+| 102 | Read fixtures/members-export-2026.xlsx | BLOCKED by pii-path hook | ... | ... |
+| 103 | Read fixtures/customers.json | BLOCKED by pii-path hook | ... | ... |
+| 104 | Read fixtures/dump.sql | BLOCKED by pii-path hook | ... | ... |
+| 105 | Read fixtures/referrals/2026-01.txt | BLOCKED by pii-path hook | ... | ... |
+| 106 | Read fixtures/exports/jan.md | BLOCKED by pii-path hook | ... | ... |
+| 107 | Read fixtures/dsar/case-1.md | BLOCKED by pii-path hook | ... | ... |
+| 108 | Read fixtures/innocuous.md | ALLOWED | ... | ... |
+| 109 | Read fixtures/pii-content/three_categories.txt | BLOCKED by pii-content-sniff | ... | ... |
+| 110 | Read fixtures/pii-content/ni_postcode_phone.txt | BLOCKED by pii-content-sniff | ... | ... |
+| 111 | Read fixtures/pii-content/many_emails.txt | BLOCKED by pii-content-sniff | ... | ... |
+| 112 | Read fixtures/pii-content/one_email_only.txt | ALLOWED | ... | ... |
+| 113 | Read fixtures/pii-content/two_categories.txt | ALLOWED | ... | ... |
+| 114 | Read fixtures/pii-content/clean_code.go | ALLOWED | ... | ... |
+| 115 | Write tmp/pii-test-users.csv | BLOCKED by pii-path hook | ... | ... |
+| 116 | Write tmp/control-innocuous.md | ALLOWED | ... | ... |
+| 117 | Edit tmp/exports/test.md | BLOCKED by pii-path hook | ... | ... |
+| 118 | MultiEdit tmp/pii-test-users.csv | BLOCKED by pii-path hook | ... | ... |
+| 119 | Write tmp/notes.md (neutral name, 3 PII categories in content) | BLOCKED by pii-content-sniff | ... | ... |
+| 120 | Write tmp/draft.md (neutral name, no PII content) | ALLOWED | ... | ... |
+| 121 | Edit tmp/scratch.md (new_string has 3 PII categories) | BLOCKED by pii-content-sniff | ... | ... |
+| 122 | MultiEdit tmp/memo.md (edits introduce 3 PII categories) | BLOCKED by pii-content-sniff | ... | ... |
 
 ## Summary
 
@@ -337,7 +461,7 @@ The output must follow exactly this shape (open with ` ```markdown ` and close w
 
 Rules for the report:
 
-- Fill the **Actual** column with `BLOCKED`, `ALLOWED`, `Tool unavailable` (for test 10), `VALID JSON` / `INVALID JSON` / `Not run` (tests 46–48, the audit-log JSON integrity checks; `Not run` when the JSONL audit log is not installed), or `AUDIT HOOK FIRED` / `NO RECORD` / `Not run` (tests 58–60, the audit-hook execution checks; `NO RECORD` means the hook is registered but did not fire). Do not paste error strings or hook messages.
+- Fill the **Actual** column with `BLOCKED`, `ALLOWED`, `Tool unavailable` (for test 10), `VALID JSON` / `INVALID JSON` / `Not run` (tests 46–48, the audit-log JSON integrity checks; `Not run` when the JSONL audit log is not installed), or `AUDIT HOOK FIRED` / `NO RECORD` / `Not run` (tests 58–60, the audit-hook execution checks; `NO RECORD` means the hook is registered but did not fire). For tests 69–87 (live MCP behavioural checks, one per Atlassian tool) and 89–100 (project-allowlist behavioural checks), use `BLOCKED` / `ALLOWED` or `Not run — atlassian MCP not connected` when the server is disconnected. Test 88 is a static wiring check (always runnable): use `ALLOWED` when it prints `present`. Do not paste error strings or hook messages.
 - Fill the **Pass/Fail** column with the literal word `Pass` or `Fail` — ASCII only.
 - If any BLOCKED test was actually ALLOWED, that is a guardrail gap — call it out at the top of the Summary section with a bold `**Guardrail gap:**` prefix so a reviewer cannot miss it.
 - Keep the fenced block self-contained: no commentary inside the fence other than the table and summary; no commentary outside the fence other than (optionally) one short sentence pointing the user at the block.
