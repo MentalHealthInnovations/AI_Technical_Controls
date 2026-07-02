@@ -44,21 +44,28 @@ See the directory's [MANIFEST.md](cases/fixtures/pii-content-wild/MANIFEST.md) f
 
 ## Regression guards for review-fixed gaps
 
-Some cases lock in fixes for detection holes found in review. Each previously
-slipped real PII through; the corresponding fix makes the detector trip, and the
-case guards against regressing it:
+Some cases lock in fixes for detection holes found in review; each guards
+against the hole reopening:
 
-| Gap | Where | Fix it guards |
-|---|---|---|
-| NUL-byte content bypass | `pii-content-sniff.jsonl` (`nul_prefixed_pii.txt`) | The binary skip is now gated on a binary file *extension*, not on NUL presence alone, so a text file with a stray/prepended NUL is still scanned ([pii-content-sniff.sh](../opt/claude/hooks/pii-content-sniff.sh)). Content-sniff only — the staged scanner reads via `$(git show)`, which strips NULs, so the bypass never applied there. |
-| Adjacency undercount | `pii-content-sniff.jsonl` + `run_staged_scan_cases.sh` (18 space-separated postcodes) | Both consumers now count with a `match()`/`RSTART`/`RLENGTH` loop instead of `gsub()`, so adjacent matches separated by one non-alphanumeric char no longer share a consumed boundary. 18 postcodes count as 18, not 9. |
-| Spaced-IBAN miss | `pii-content-sniff.jsonl` + `run_staged_scan_cases.sh` (12 spaced IBANs) | The IBAN regex now allows optional whitespace between characters, so the ISO 13616 human-readable form (`GB29 NWBK 6016 ...`) matches. |
+- **NUL-byte bypass** (`pii-content-sniff.jsonl`, `nul_prefixed_pii.txt`) — the
+  binary skip is gated on a binary file *extension*, not NUL presence alone, so
+  a text file with a stray NUL is still scanned. Content-sniff only: the staged
+  scanner reads via `git show`, which strips NULs, so the bypass never applied
+  there.
+- **Adjacency undercount** (`pii-content-sniff.jsonl` + `run_staged_scan_cases.sh`,
+  18 space-separated postcodes) — both consumers count with a
+  `match()`/`RSTART`/`RLENGTH` loop instead of `gsub()`, so adjacent matches
+  are counted individually (18 postcodes count as 18, not 9).
+- **Spaced-IBAN miss** (`pii-content-sniff.jsonl` + `run_staged_scan_cases.sh`,
+  12 spaced IBANs) — the IBAN regex allows optional whitespace between
+  characters, so the ISO 13616 human-readable form (`GB29 NWBK 6016 ...`)
+  matches.
 
 The Write-path gap (an innocuously-named PII file created via `Write`/`Edit` was
 never content-scanned at runtime) is addressed in `managed-settings.json` by
 registering `pii-content-sniff.sh` for `Edit|Write|MultiEdit` as well as `Read`;
 the hook scans the inline `content`/`new_string` payload when there is no file on
-disk yet. See that hook's header for the dual Read-vs-write-payload paths.
+disk yet.
 
 ## Integration tests
 

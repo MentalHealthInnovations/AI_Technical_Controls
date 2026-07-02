@@ -2,17 +2,15 @@
 # False-positive guard: runs every file in tests/cases/fixtures/pii-content-wild
 # through pii-content-sniff.sh and asserts that none of them trip a deny.
 #
-# Beyond pass/fail, this runner prints per-pattern hit counts for each fixture.
-# That table is the load-bearing output: a future PR that lowers a threshold
-# or tightens a regex will visibly shift the counts, so reviewers can see
-# which fixtures it would push closer to tripping even if none trip yet.
+# Beyond pass/fail, this runner prints per-pattern hit counts for each fixture,
+# so a future PR that lowers a threshold or tightens a regex visibly shifts the
+# counts even if no fixture trips yet.
 #
 # Adding a fixture: drop it under fixtures/pii-content-wild/ and update that
 # directory's MANIFEST.md. The runner discovers files automatically.
 #
 # pattern_names / pattern_regexes are defined in the sourced pii-patterns.sh,
-# which shellcheck cannot follow at lint time (SC1091) so it would otherwise
-# flag them as unassigned (SC2154).
+# which shellcheck cannot follow at lint time (SC1091 / SC2154).
 # shellcheck disable=SC2154
 set -u
 
@@ -35,9 +33,6 @@ if [[ ! -d "$corpus_dir" ]]; then
   exit 2
 fi
 
-# Load pattern definitions so we can independently count per-pattern hits
-# without inferring them from the hook's deny output (which only fires on
-# trip and so reveals nothing about sub-threshold scores).
 # shellcheck source=../opt/claude/hooks/pii-patterns.sh disable=SC1091
 . "$patterns_file"
 
@@ -53,14 +48,12 @@ if [[ "${#fixtures[@]}" -eq 0 ]]; then
   exit 2
 fi
 
-# Header for the per-pattern count table. Column widths match the longest
-# pattern name so the table stays aligned even when patterns are added.
+# Column widths match the longest pattern name so the table stays aligned.
 pname_width=0
 for name in "${pattern_names[@]}"; do
   [[ "${#name}" -gt "$pname_width" ]] && pname_width="${#name}"
 done
 
-# Print header.
 printf 'Per-pattern hit counts (each fixture is expected to be sub-threshold):\n'
 printf '\n'
 printf '  %-40s' "fixture"
@@ -71,10 +64,6 @@ printf '  verdict\n'
 
 fail=0
 total=0
-# Collect sample matches for any non-zero count, printed after the table so
-# reviewers can see WHAT was matched — invaluable for diagnosing latent
-# false-positive risk (e.g. a UK_PHONE hit inside a hex hash).
-samples_out=""
 
 for fixture in "${fixtures[@]}"; do
   total=$((total + 1))
@@ -96,55 +85,26 @@ for fixture in "${fixtures[@]}"; do
     fi
   fi
 
-  # Independently count each pattern against the fixture so reviewers can see
-  # how close to threshold each fixture sits. Uses the same sample size (first
-  # 64 KiB) and the same match()/RSTART/RLENGTH counting loop as the hook, so
-  # the displayed counts match what the hook actually scored. (Using gsub here
-  # would under-report adjacent matches and disagree with the hook's verdict.)
+  # Count each pattern against the fixture with the same sample size (first
+  # 64 KiB) and the same match()/RSTART/RLENGTH loop as the hook, so the
+  # displayed counts match what the hook actually scored.
   sample="$(head -c 65536 "$fixture")"
   printf '  %-40s' "$short_rel"
   n="${#pattern_names[@]}"
   for ((i=0; i<n; i++)); do
-    name="${pattern_names[$i]}"
     regex="${pattern_regexes[$i]}"
     count="$(printf '%s' "$sample" | awk -v r="$regex" 'BEGIN{c=0} {s=$0; while (match(s,r)>0) {c++; adv=RSTART+RLENGTH-1; if (adv<1) adv=1; s=substr(s,adv)}} END{print c+0}' 2>/dev/null)"
     [[ -z "$count" ]] && count=0
     printf ' %-*s' "$pname_width" "$count"
-    if [[ "$count" -gt 0 ]]; then
-      # Capture up to 3 sample matches so the report shows what's tripping the
-      # count, not just that something is. awk's match() returns the offset of
-      # the next match (RSTART) and its length (RLENGTH); slicing with substr
-      # and advancing the cursor extracts each match in turn. Matches are
-      # wrapped in [] to make whitespace visible.
-      matches="$(printf '%s' "$sample" | awk -v r="$regex" '
-        {
-          line = $0
-          while (match(line, r) > 0 && shown < 3) {
-            print "[" substr(line, RSTART, RLENGTH) "]"
-            line = substr(line, RSTART + RLENGTH)
-            shown++
-          }
-        }
-      ' 2>/dev/null)"
-      samples_out+="    $short_rel  $name:"$'\n'
-      while IFS= read -r m; do
-        [[ -n "$m" ]] && samples_out+="      $m"$'\n'
-      done <<<"$matches"
-    fi
   done
   printf '  %s\n' "$verdict"
 done
 
 echo
-if [[ -n "$samples_out" ]]; then
-  echo "Sample matches (up to 3 per fixture/pattern):"
-  printf '%s' "$samples_out"
-  echo
-fi
 echo "Thresholds: DISTINCT=3 categories, DENSITY=10 hits of a single high-confidence pattern."
 echo "Total: $total fixture(s), Failed (tripped deny): $fail"
 
 # Any deny is a failure. Sub-threshold counts shifting upward across PRs is a
 # warning sign but doesn't fail the suite; it's visible in the diff of this
-# table when the runner is part of CI.
+# table in CI output.
 exit "$fail"

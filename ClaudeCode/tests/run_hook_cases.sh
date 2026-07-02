@@ -40,8 +40,7 @@ while IFS= read -r line; do
   input=$(printf '%s' "$line" | jq -c '.input')
 
   payload=$(jq -n --argjson i "$input" '{tool_input: $i}')
-  hook_stderr="$(mktemp)"
-  out=$(printf '%s' "$payload" | "$hook" 2>"$hook_stderr" || true)
+  out=$(printf '%s' "$payload" | "$hook" 2>/dev/null || true)
 
   if [[ -z "$out" ]]; then
     actual="unset"
@@ -54,33 +53,15 @@ while IFS= read -r line; do
     printf 'PASS  %-45s %s\n' "$name" "$actual"
   else
     printf 'FAIL  %-45s expected=%s actual=%s\n' "$name" "$expect" "$actual"
-    # Diagnostic dump on failure: resolve the file_path the hook would see,
-    # report existence/size, and surface hook stderr. Helps catch environment-
-    # specific issues (cwd mismatches, missing tools, awk dialect quirks)
-    # that produce silent "unset" outcomes.
+    # Re-run with stderr visible so environment failures (missing tools, cwd
+    # mismatches, awk dialect quirks) are diagnosable from the log.
+    printf '%s' "$payload" | "$hook" 2>&1 | sed 's/^/      | /' || true
     fp="$(printf '%s' "$input" | jq -r '.file_path // empty')"
-    if [[ -n "$fp" ]]; then
-      resolved="$fp"
-      [[ "$fp" != /* ]] && resolved="$(pwd)/$fp"
-      if [[ -f "$resolved" ]]; then
-        size=$(wc -c < "$resolved" 2>/dev/null || echo "?")
-        printf '      diag: file_path=%s resolved=%s exists=yes size=%s\n' "$fp" "$resolved" "$size"
-      else
-        printf '      diag: file_path=%s resolved=%s exists=NO\n' "$fp" "$resolved"
-      fi
-    else
-      printf '      diag: no file_path in input\n'
-    fi
-    if [[ -s "$hook_stderr" ]]; then
-      printf '      diag: hook stderr:\n'
-      sed 's/^/        /' "$hook_stderr"
-    fi
-    if [[ -n "$out" ]]; then
-      printf '      diag: hook stdout: %s\n' "$out"
+    if [[ -n "$fp" && ! -e "$fp" && "$fp" != /* ]]; then
+      printf '      diag: %s does not exist relative to cwd %s\n' "$fp" "$PWD"
     fi
     fail=$((fail+1))
   fi
-  rm -f "$hook_stderr"
 done < "$cases"
 
 echo
