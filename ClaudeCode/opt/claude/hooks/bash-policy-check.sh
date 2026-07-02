@@ -148,6 +148,47 @@ if printf '%s' "$cmd" | grep -Eqi '^tfsec\b.*\s--update\b'; then
   emit_deny "tfsec_update" "tfsec --update blocked by policy"
 fi
 
+# docker credential-hygiene pre-check. Blocks any docker invocation while
+# ~/.docker/config.json has a populated `auth`, `identitytoken`, or
+# `registrytoken` field in any .auths entry — i.e. credentials embedded
+# directly rather than delegated to a helper (credsStore/credHelpers, e.g.
+# macOS osxkeychain). Matched broadly (^docker\b, not just pull/push/login/
+# build) so this is a config-hygiene gate that any future allowlist
+# broadening inherits automatically, not a per-subcommand check.
+#
+# identitytoken/registrytoken are checked separately from auth (and blocked
+# with a distinct reason) because they are longer-lived, OAuth-refresh-style
+# credentials (e.g. Docker Hub PAT logins, Azure ACR token exchange) that a
+# naive "auth field only" check would miss entirely — a config can have no
+# `auth` value at all and still hold one of these.
+#
+# Fails OPEN only when the file is absent/unreadable (nothing to authenticate
+# with). Fails CLOSED (blocks) on malformed JSON — an indeterminate credential
+# state must not be treated as "clean" — matching webfetch-policy-check.sh's
+# "allowlist_unavailable" fail-closed convention for its own dependency file.
+#
+# $DOCKER_CONFIG honours docker CLI's own override for a persistently-exported
+# shell environment; it is NOT usable as a same-call `DOCKER_CONFIG=x docker
+# ...` prefix, since that form doesn't start with `docker` and so matches
+# neither this ^docker\b anchor nor the allowlist entry below — the same
+# leading-token limitation the allowlist already has for every other tool.
+if printf '%s' "$cmd" | grep -Eqi '^docker\b'; then
+  docker_config="${DOCKER_CONFIG:-$HOME/.docker}/config.json"
+  if [[ -r "$docker_config" ]]; then
+    auths_populated="$(jq -e '(.auths // {}) | to_entries | any(.value.auth != null and .value.auth != "")' "$docker_config" 2>/dev/null)"
+    auths_status=$?
+    identity_populated="$(jq -e '(.auths // {}) | to_entries | any((.value.identitytoken != null and .value.identitytoken != "") or (.value.registrytoken != null and .value.registrytoken != ""))' "$docker_config" 2>/dev/null)"
+    identity_status=$?
+    if [[ $auths_status -gt 1 || $identity_status -gt 1 ]]; then
+      emit_deny "docker_config_unreadable" "docker command blocked: ~/.docker/config.json could not be parsed as JSON; fix the file before running docker commands"
+    elif [[ "$identity_populated" == "true" ]]; then
+      emit_deny "docker_identity_token_present" "docker command blocked: ~/.docker/config.json has a long-lived identitytoken/registrytoken embedded; clear it and use a credsStore/credHelpers-based credential helper instead"
+    elif [[ "$auths_populated" == "true" ]]; then
+      emit_deny "docker_auths_populated" "docker command blocked: ~/.docker/config.json has embedded credentials in .auths; clear them and use a credsStore/credHelpers-based credential helper instead"
+    fi
+  fi
+fi
+
 # Array of allowed command patterns (regex format)
 # Safe git commands: read-only, safe modifications, but blocks dangerous operations
 allowed_patterns=(
