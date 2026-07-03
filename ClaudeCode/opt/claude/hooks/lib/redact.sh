@@ -53,6 +53,8 @@ __REDACT_PATTERNS=(
   "SLACK_TOKEN"        'xox[baprs]-[A-Za-z0-9-]{10,}'
   "JWT"                'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'
   "AUTH_HEADER"        '([Bb][Ee][Aa][Rr][Ee][Rr]|[Tt][Oo][Kk][Ee][Nn]|[Bb][Aa][Ss][Ii][Cc])[[:space:]]+[A-Za-z0-9_.~+/=-]{8,}'
+  "DOCKER_AUTH_FIELD"  '"auth"[[:space:]]*:[[:space:]]*"[A-Za-z0-9+/=]{16,}"'
+  "DOCKER_TOKEN_FIELD" '"(identitytoken|registrytoken)"[[:space:]]*:[[:space:]]*"[^"]{16,}"'
   "TWILIO_KEY"         'SK[a-f0-9]{32}'
   "SENDGRID_KEY"       'SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}'
   "CONNECTION_STRING"  '(mongodb(\+srv)?|postgres(ql)?|mysql|redis|amqp)://[^:@ ]+:[^@ ]+@'

@@ -148,6 +148,47 @@ if printf '%s' "$cmd" | grep -Eqi '^tfsec\b.*\s--update\b'; then
   emit_deny "tfsec_update" "tfsec --update blocked by policy"
 fi
 
+# docker credential-hygiene pre-check. Blocks any docker invocation while
+# ~/.docker/config.json has a populated `auth`, `identitytoken`, or
+# `registrytoken` field in any .auths entry — i.e. credentials embedded
+# directly rather than delegated to a helper (credsStore/credHelpers, e.g.
+# macOS osxkeychain). Matched broadly (^docker\b, not just pull/push/login/
+# build) so this is a config-hygiene gate that any future allowlist
+# broadening inherits automatically, not a per-subcommand check.
+#
+# identitytoken/registrytoken are checked separately from auth (and blocked
+# with a distinct reason) because they are longer-lived, OAuth-refresh-style
+# credentials (e.g. Docker Hub PAT logins, Azure ACR token exchange) that a
+# naive "auth field only" check would miss entirely — a config can have no
+# `auth` value at all and still hold one of these.
+#
+# Fails OPEN only when the file is absent/unreadable (nothing to authenticate
+# with). Fails CLOSED (blocks) on malformed JSON — an indeterminate credential
+# state must not be treated as "clean" — matching webfetch-policy-check.sh's
+# "allowlist_unavailable" fail-closed convention for its own dependency file.
+#
+# $DOCKER_CONFIG honours docker CLI's own override for a persistently-exported
+# shell environment; it is NOT usable as a same-call `DOCKER_CONFIG=x docker
+# ...` prefix, since that form doesn't start with `docker` and so matches
+# neither this ^docker\b anchor nor the allowlist entry below — the same
+# leading-token limitation the allowlist already has for every other tool.
+if printf '%s' "$cmd" | grep -Eqi '^docker\b'; then
+  docker_config="${DOCKER_CONFIG:-$HOME/.docker}/config.json"
+  if [[ -r "$docker_config" ]]; then
+    auths_populated="$(jq -e '(.auths // {}) | to_entries | any(.value.auth != null and .value.auth != "")' "$docker_config" 2>/dev/null)"
+    auths_status=$?
+    identity_populated="$(jq -e '(.auths // {}) | to_entries | any((.value.identitytoken != null and .value.identitytoken != "") or (.value.registrytoken != null and .value.registrytoken != ""))' "$docker_config" 2>/dev/null)"
+    identity_status=$?
+    if [[ $auths_status -gt 1 || $identity_status -gt 1 ]]; then
+      emit_deny "docker_config_unreadable" "docker command blocked: ~/.docker/config.json could not be parsed as JSON; fix the file before running docker commands"
+    elif [[ "$identity_populated" == "true" ]]; then
+      emit_deny "docker_identity_token_present" "docker command blocked: ~/.docker/config.json has a long-lived identitytoken/registrytoken embedded; clear it and use a credsStore/credHelpers-based credential helper instead"
+    elif [[ "$auths_populated" == "true" ]]; then
+      emit_deny "docker_auths_populated" "docker command blocked: ~/.docker/config.json has embedded credentials in .auths; clear them and use a credsStore/credHelpers-based credential helper instead"
+    fi
+  fi
+fi
+
 # Array of allowed command patterns (regex format)
 # Safe git commands: read-only, safe modifications, but blocks dangerous operations
 allowed_patterns=(
@@ -219,6 +260,15 @@ allowed_patterns=(
 
   # GitHub CLI
   "^gh\s+(issue|pr|repo|gist|label|release)"
+  # GitHub Actions and status: read-only verbs only. `gh run` and `gh workflow`
+  # have mutating verbs (run rerun/cancel/delete, workflow run/enable/disable)
+  # that trigger or cancel CI, so each is scoped to its inspect verbs rather than
+  # allowlisted bare. `gh status` and `gh browse` are read-only. `gh api` is
+  # deliberately omitted: it takes --method POST/DELETE, so it cannot be
+  # allowlisted as read-only via a leading-verb pattern.
+  "^gh\s+run\s+(list|view|watch)\b"
+  "^gh\s+workflow\s+(list|view)\b"
+  "^gh\s+(status|browse)\b"
 
   # npm/pnpm/yarn - safe operations
   "^npm\s+(ci|test|lint|list|search|view|info|outdated)"
@@ -235,8 +285,14 @@ allowed_patterns=(
   "^ruff\s+(check|format|format.*--check|lint)"
   "^mypy"
 
-  # Docker - safe operations
-  "^docker\s+(build|ps|logs|pull|images|inspect)"
+  # Docker - safe operations. version/info are pure read-outs. run/exec/push are
+  # deliberately excluded as arbitrary-code / write vectors.
+  "^docker\s+(build|ps|logs|pull|images|inspect|version|info)"
+  # docker compose: read-only subcommands only. build/run/up/down execute
+  # arbitrary Dockerfile RUN steps or container commands and are excluded; those
+  # spawn subprocesses this hook cannot see, so they are a policy decision, not a
+  # config tweak (see docs/command-allowlist-risk-assessment.md).
+  "^docker\s+compose\s+(config|ps|logs|ls|version)\b"
 
   # pre-commit and the binaries its hooks invoke. Anchored at ^ because they
   # modify the filesystem (write per-language envs under ~/.cache/pre-commit,
@@ -286,7 +342,21 @@ segment_allowed() {
 # Split the quote-stripped command so that operators inside quotes (e.g. a grep regex
 # `"a\|b\|c"`) are not treated as segment boundaries. The allowlist only needs to see
 # each segment's leading verb, which lives outside any quoted argument.
-while IFS= read -r segment; do
+#
+# Why `|| [[ -n "$segment" ]]` is here (do NOT remove it):
+#   We hand the loop a list of segments, one per line. `read` only treats a line
+#   as "real" if it ends in a newline. But the text we feed in (printf '%s') puts
+#   NO newline after the very last segment. So on the last segment, `read` still
+#   copies the text into $segment, yet reports "nothing left" (a non-zero exit).
+#   A plain `while read ...` believes "nothing left" and stops WITHOUT checking
+#   that last segment. That segment then runs unchecked.
+#   For a single command like `id`, the whole command IS the last segment — so it
+#   would never be allowlist-checked and would run freely. That silently breaks
+#   default-deny.
+#   `|| [[ -n "$segment" ]]` means: keep looping if `read` found a line, OR if the
+#   text we just grabbed is non-empty. So the final segment gets checked too, and
+#   the loop still stops cleanly once the grabbed text is empty.
+while IFS= read -r segment || [[ -n "$segment" ]]; do
   if ! segment_allowed "$segment"; then
     audit_emit "$payload" deny \
       cmd          "$cmd" \

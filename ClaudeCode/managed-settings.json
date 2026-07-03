@@ -37,7 +37,6 @@
       "Read(~/.gnupg/**)",
       "Read(~/.npmrc)",
       "Read(~/.netrc)",
-      "Read(~/.docker/config.json)",
       "Read(~/.kube/config)",
       "Read(~/.terraform.d/**)",
       "Read(~/.terraformrc)",
@@ -136,7 +135,8 @@
 
     "filesystem": {
       "allowRead": [
-        "."
+        ".",
+        "~/.docker/config.json"
       ],
       "allowWrite": [
         ".",
