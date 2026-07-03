@@ -14,9 +14,11 @@ source "$HOOK_DIR/lib/audit-log.sh"
 audit_init "mcp-policy"
 
 # Allowlist of permitted tools, keyed by server. To grant a tool, add its bare <tool>
-# segment to its server's list. Keep read-only tools only: omitted state-changing tools
-# (createJiraIssue, editJiraIssue, transitionJiraIssue, etc.) are thus denied before the
-# call reaches the server.
+# segment to its server's list. Jira write tools (createJiraIssue, editJiraIssue,
+# transitionJiraIssue, addCommentToJiraIssue, addWorklogToJiraIssue, createIssueLink) are
+# allowed here but bound to ATLASSIAN_PROJECTS by project_scope_ok below, so a write
+# outside the allowlisted projects is still denied. Other state-changing tools stay
+# omitted, which denies them before the call reaches the server.
 is_allowed() {
   local server="$1" tool="$2" allowed="" t
   case "$server" in
@@ -25,7 +27,9 @@ is_allowed() {
                getJiraIssueRemoteIssueLinks getJiraIssueTypeMetaWithFields \
                getJiraProjectIssueTypesMetadata getIssueLinkTypes \
                getTransitionsForJiraIssue getVisibleJiraProjects \
-               lookupJiraAccountId searchJiraIssuesUsingJql"
+               lookupJiraAccountId searchJiraIssuesUsingJql \
+               createJiraIssue editJiraIssue transitionJiraIssue \
+               addCommentToJiraIssue addWorklogToJiraIssue createIssueLink"
       ;;
     *)
       return 1
@@ -39,13 +43,14 @@ is_allowed() {
 }
 
 # --- Atlassian project (space) allowlist -------------------------------------
-# Read tools that name a Jira project or issue are scoped to these project keys;
-# every other project is denied. Keys are compared case-insensitively. EDIT THIS
-# LIST to change which projects Claude Code may read. An empty list denies all
-# project-scoped reads. Cross-project tools that take no project key
-# (getVisibleJiraProjects, lookupJiraAccountId, getIssueLinkTypes, and the two
-# shared tools getAccessibleAtlassianResources / atlassianUserInfo) are not bound
-# by this list — a project allowlist cannot express "list only these projects".
+# Tools that name a Jira project or issue — reads and writes alike — are scoped
+# to these project keys; every other project is denied. Keys are compared
+# case-insensitively. EDIT THIS LIST to change which projects Claude Code may
+# read or write. An empty list denies all project-scoped calls. Cross-project
+# tools that take no project key (getVisibleJiraProjects, lookupJiraAccountId,
+# getIssueLinkTypes, and the two shared tools getAccessibleAtlassianResources /
+# atlassianUserInfo) are not bound by this list — a project allowlist cannot
+# express "list only these projects".
 ATLASSIAN_PROJECTS="PLAN DENGS DATA MJB"
 
 # project_allowed <key> — true iff <key> (any case) is an alphanumeric Jira key
@@ -112,10 +117,11 @@ jql_scope_ok() {
 # Jira project/issue outside ATLASSIAN_PROJECTS. Only the atlassian server is
 # project-scoped; tools that take no project key are unaffected.
 project_scope_ok() {
-  local server="$1" tool="$2" pl="$3" v proj
+  local server="$1" tool="$2" pl="$3" v proj in_v out_v in_proj out_proj
   [[ "$server" == atlassian ]] || return 0
   case "$tool" in
-    getJiraIssue|getJiraIssueRemoteIssueLinks|getTransitionsForJiraIssue)
+    getJiraIssue | getJiraIssueRemoteIssueLinks | getTransitionsForJiraIssue | \
+    editJiraIssue | transitionJiraIssue | addCommentToJiraIssue | addWorklogToJiraIssue)
       v="$(printf '%s' "$pl" | jq -r '.tool_input.issueIdOrKey // empty')"
       proj="$(issue_key_project "$v")"
       [[ -n "$proj" ]] && project_allowed "$proj"
@@ -123,6 +129,20 @@ project_scope_ok() {
     getJiraIssueTypeMetaWithFields|getJiraProjectIssueTypesMetadata)
       v="$(printf '%s' "$pl" | jq -r '.tool_input.projectIdOrKey // empty')"
       project_allowed "$v"
+      ;;
+    createJiraIssue)
+      v="$(printf '%s' "$pl" | jq -r '.tool_input.projectKey // empty')"
+      project_allowed "$v"
+      ;;
+    createIssueLink)
+      # Both ends must resolve to an allowlisted project — one out-of-scope
+      # issue is enough to deny, so a link write cannot touch an issue outside
+      # ATLASSIAN_PROJECTS via its other end.
+      in_v="$(printf '%s' "$pl" | jq -r '.tool_input.inwardIssue // empty')"
+      out_v="$(printf '%s' "$pl" | jq -r '.tool_input.outwardIssue // empty')"
+      in_proj="$(issue_key_project "$in_v")"
+      out_proj="$(issue_key_project "$out_v")"
+      [[ -n "$in_proj" && -n "$out_proj" ]] && project_allowed "$in_proj" && project_allowed "$out_proj"
       ;;
     searchJiraIssuesUsingJql)
       v="$(printf '%s' "$pl" | jq -r '.tool_input.jql // empty')"
