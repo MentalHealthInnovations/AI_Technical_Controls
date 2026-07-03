@@ -8,6 +8,16 @@ It exists because "add command X to the allowlist" is not a uniform request:
 some commands are inert read-outs, while others execute arbitrary project-defined
 code and can only be contained by the OS sandbox, not by the hook.
 
+> **Note on a fixed enforcement gap.** Until fixed on this branch, the allowlist
+> loop skipped the final command segment (a `while read` over `printf`-without-a-
+> -trailing-newline drops the last line), so a bare single command — or the final
+> segment of a chain — was never allowlist-checked and ran if it evaded the
+> explicit deny patterns. The loop now uses `read ... || [[ -n "$segment" ]]`.
+> Practical effect: before the fix, default-deny did not really apply to single
+> commands, so the allowlist entries here only bit on non-final chain segments;
+> after it, they apply as intended. Regression guards: tests 119–122 in the
+> guardrail suite.
+
 ## Background: what the allowlist can and cannot see
 
 `bash-policy-check.sh` is a **PreToolUse hook that gates a single command
