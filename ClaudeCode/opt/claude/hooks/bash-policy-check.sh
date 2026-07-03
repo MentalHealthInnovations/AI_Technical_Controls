@@ -219,6 +219,15 @@ allowed_patterns=(
 
   # GitHub CLI
   "^gh\s+(issue|pr|repo|gist|label|release)"
+  # GitHub Actions and status: read-only verbs only. `gh run` and `gh workflow`
+  # have mutating verbs (run rerun/cancel/delete, workflow run/enable/disable)
+  # that trigger or cancel CI, so each is scoped to its inspect verbs rather than
+  # allowlisted bare. `gh status` and `gh browse` are read-only. `gh api` is
+  # deliberately omitted: it takes --method POST/DELETE, so it cannot be
+  # allowlisted as read-only via a leading-verb pattern.
+  "^gh\s+run\s+(list|view|watch)\b"
+  "^gh\s+workflow\s+(list|view)\b"
+  "^gh\s+(status|browse)\b"
 
   # npm/pnpm/yarn - safe operations
   "^npm\s+(ci|test|lint|list|search|view|info|outdated)"
@@ -235,8 +244,14 @@ allowed_patterns=(
   "^ruff\s+(check|format|format.*--check|lint)"
   "^mypy"
 
-  # Docker - safe operations
-  "^docker\s+(build|ps|logs|pull|images|inspect)"
+  # Docker - safe operations. version/info are pure read-outs. run/exec/push are
+  # deliberately excluded as arbitrary-code / write vectors.
+  "^docker\s+(build|ps|logs|pull|images|inspect|version|info)"
+  # docker compose: read-only subcommands only. build/run/up/down execute
+  # arbitrary Dockerfile RUN steps or container commands and are excluded; those
+  # spawn subprocesses this hook cannot see, so they are a policy decision, not a
+  # config tweak (see docs/command-allowlist-risk-assessment.md).
+  "^docker\s+compose\s+(config|ps|logs|ls|version)\b"
 
   # pre-commit and the binaries its hooks invoke. Anchored at ^ because they
   # modify the filesystem (write per-language envs under ~/.cache/pre-commit,
