@@ -343,12 +343,19 @@ segment_allowed() {
 # `"a\|b\|c"`) are not treated as segment boundaries. The allowlist only needs to see
 # each segment's leading verb, which lives outside any quoted argument.
 #
-# The `|| [[ -n "$segment" ]]` is load-bearing: `printf '%s'` emits no trailing
-# newline, so on the final segment `read` populates $segment but returns non-zero
-# (EOF). Without this guard the loop body would skip that last segment entirely,
-# leaving it unchecked — which means a single command (its own last-and-only
-# segment) or the final segment of a chain would bypass the allowlist. That
-# defeats default-deny for the common single-command case.
+# Why `|| [[ -n "$segment" ]]` is here (do NOT remove it):
+#   We hand the loop a list of segments, one per line. `read` only treats a line
+#   as "real" if it ends in a newline. But the text we feed in (printf '%s') puts
+#   NO newline after the very last segment. So on the last segment, `read` still
+#   copies the text into $segment, yet reports "nothing left" (a non-zero exit).
+#   A plain `while read ...` believes "nothing left" and stops WITHOUT checking
+#   that last segment. That segment then runs unchecked.
+#   For a single command like `id`, the whole command IS the last segment — so it
+#   would never be allowlist-checked and would run freely. That silently breaks
+#   default-deny.
+#   `|| [[ -n "$segment" ]]` means: keep looping if `read` found a line, OR if the
+#   text we just grabbed is non-empty. So the final segment gets checked too, and
+#   the loop still stops cleanly once the grabbed text is empty.
 while IFS= read -r segment || [[ -n "$segment" ]]; do
   if ! segment_allowed "$segment"; then
     audit_emit "$payload" deny \
