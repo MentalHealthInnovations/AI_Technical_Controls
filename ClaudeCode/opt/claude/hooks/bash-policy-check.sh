@@ -301,7 +301,14 @@ segment_allowed() {
 # Split the quote-stripped command so that operators inside quotes (e.g. a grep regex
 # `"a\|b\|c"`) are not treated as segment boundaries. The allowlist only needs to see
 # each segment's leading verb, which lives outside any quoted argument.
-while IFS= read -r segment; do
+#
+# The `|| [[ -n "$segment" ]]` is load-bearing: `printf '%s'` emits no trailing
+# newline, so on the final segment `read` populates $segment but returns non-zero
+# (EOF). Without this guard the loop body would skip that last segment entirely,
+# leaving it unchecked — which means a single command (its own last-and-only
+# segment) or the final segment of a chain would bypass the allowlist. That
+# defeats default-deny for the common single-command case.
+while IFS= read -r segment || [[ -n "$segment" ]]; do
   if ! segment_allowed "$segment"; then
     audit_emit "$payload" deny \
       cmd          "$cmd" \
