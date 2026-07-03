@@ -18,11 +18,14 @@ A layered configuration system that makes Claude Code safer to use at scale. The
 | `ClaudeCode/opt/claude/hooks/session-audit.sh` | Audit-only hook for `SessionStart`, `Stop`, `SessionEnd` |
 | `ClaudeCode/opt/claude/hooks/lib/audit-log.sh` | Shared helper: appends a JSONL record per invocation |
 | `ClaudeCode/opt/claude/hooks/lib/redact.sh` | Shared secret-redaction patterns (output + prompt) |
+| `ClaudeCode/opt/claude/hooks/test/run-bash-policy-tests.sh` | Offline harness: exercises the worktree bash-policy/redaction hooks without installing them |
 | `ClaudeCode/opt/claude/bin/upload-audit-logs.sh` | Daily uploader: ships the six hook logs to the audit S3 bucket (see appendix) |
 | `ClaudeCode/pull_claude_governance.sh` | Pulls and deploys policy files; self-updates each run |
 | `ClaudeCode/InstallClaudeGovernance.sh` | One-time macOS bootstrap for `pull_claude_governance.sh` |
 | [Appendix: AWS audit-log setup](#appendix-aws-audit-log-setup) | Phase 0 manual AWS setup for the audit-log S3 bucket + IAM (IaC later) |
 | `.claude/skills/test-guardrails/SKILL.md` | `/test-guardrails` verification suite |
+| `docs/architecture.md` | Mermaid diagrams: layered architecture, hook routing, bash-policy flow, redaction, audit pipeline |
+| `docs/command-allowlist-risk-assessment.md` | Risk assessment + decision log for Bash allowlist candidates |
 | `.github/workflows/ci.yml` | CI: runs `pre-commit run --all-files` on PRs and pushes to `main` |
 | `.pre-commit-config.yaml` | Single source of truth for lint/format/validation checks (run by CI and optionally locally) |
 
