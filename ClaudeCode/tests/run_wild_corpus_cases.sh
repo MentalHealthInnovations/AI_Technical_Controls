@@ -9,8 +9,9 @@
 # Adding a fixture: drop it under fixtures/pii-content-wild/ and update that
 # directory's MANIFEST.md. The runner discovers files automatically.
 #
-# pattern_names / pattern_regexes are defined in the sourced pii-patterns.sh,
-# which shellcheck cannot follow at lint time (SC1091 / SC2154).
+# pattern_names / SNIFF_BYTES / pii_score_sample (and the PII_COUNTS[] it
+# sets) are defined in the sourced pii-patterns.sh, which shellcheck cannot
+# follow at lint time (SC1091 / SC2154).
 # shellcheck disable=SC2154
 set -u
 
@@ -85,17 +86,15 @@ for fixture in "${fixtures[@]}"; do
     fi
   fi
 
-  # Count each pattern against the fixture with the same sample size (first
-  # 64 KiB) and the same match()/RSTART/RLENGTH loop as the hook, so the
-  # displayed counts match what the hook actually scored.
-  sample="$(head -c 65536 "$fixture")"
+  # Score with the same SNIFF_BYTES and pii_score_sample() (pii-patterns.sh)
+  # the hook itself uses, so the displayed counts can never drift from what
+  # the hook actually scored.
+  sample="$(head -c "$SNIFF_BYTES" "$fixture")"
+  pii_score_sample "$sample"
   printf '  %-40s' "$short_rel"
   n="${#pattern_names[@]}"
   for ((i=0; i<n; i++)); do
-    regex="${pattern_regexes[$i]}"
-    count="$(printf '%s' "$sample" | awk -v r="$regex" 'BEGIN{c=0} {s=$0; while (match(s,r)>0) {c++; adv=RSTART+RLENGTH-1; if (adv<1) adv=1; s=substr(s,adv)}} END{print c+0}' 2>/dev/null)"
-    [[ -z "$count" ]] && count=0
-    printf ' %-*s' "$pname_width" "$count"
+    printf ' %-*s' "$pname_width" "${PII_COUNTS[$i]}"
   done
   printf '  %s\n' "$verdict"
 done

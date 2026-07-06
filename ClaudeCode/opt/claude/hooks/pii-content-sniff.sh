@@ -16,37 +16,39 @@
 #
 # Layer 2 of the PII controls. Layer 1 (pii-path-policy-check.sh) denies on
 # path/extension; this layer catches misnamed files where the contents reveal
-# PII that the name did not. The two layers are independent and registered
-# separately in managed-settings.json so either can be tuned in isolation.
+# PII that the name did not, on Read as well as on the write-family tools
+# (Write/Edit/MultiEdit never touch disk before this hook runs, so Layer 1's
+# path check is the only line of defence for those until this layer inspects
+# the payload itself). The two layers are independent and registered
+# separately in managed-settings.json so either can be tuned or audited in
+# isolation.
 #
-# Tuning:
-#   SNIFF_BYTES    — how much of the file to scan. Larger = more accurate,
+# Tuning (shared with pii-staged-scan.sh via pii-patterns.sh so runtime and
+# commit-time detection cannot drift apart):
+#   SNIFF_BYTES    — how much of the content to scan. Larger = more accurate,
 #                    slower on big files. Default 65536 (64 KiB).
 #   DISTINCT_TRIP  — number of distinct categories that triggers a deny.
 #   DENSITY_TRIP   — number of matches of a single high-confidence pattern
 #                    that triggers a deny on its own.
 #
-# To add a new pattern:
-#   Add an entry to the `patterns` array as "NAME|REGEX|CONFIDENCE" where
-#   CONFIDENCE is "high" (counts toward density trip) or "low" (only counts
-#   toward distinct-category trip). High-confidence patterns are those
-#   unlikely to produce false positives on technical content.
+# To add a new pattern, see pii-patterns.sh.
 set -u
 
-SNIFF_BYTES=65536
-DISTINCT_TRIP=3
-DENSITY_TRIP=10
-MAX_BINARY_CHECK_BYTES=1024
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=pii-patterns.sh
+. "$script_dir/pii-patterns.sh"
+# Defines pattern_names/pattern_regexes/pattern_confs, the shared scan
+# constants (SNIFF_BYTES, DISTINCT_TRIP, DENSITY_TRIP, MAX_BINARY_CHECK_BYTES),
+# and the pii_score_sample() / pii_deny_json() helpers used below.
 
-HOOK_LOG="$HOME/.claude/debug/pii-content-sniff.log"
-# Ensure the log directory exists before any redirect targets $HOOK_LOG.
-# Without this, on first run in any environment where ~/.claude/debug/ has
-# not been created yet, bash's `>> "$HOOK_LOG"` redirect fails and breaks
-# the surrounding pipeline — silently zeroing every pattern count.
-mkdir -p "$(dirname "$HOOK_LOG")" 2>/dev/null || true
-logtofile() {
-  echo "[$(date)] [pii-content-sniff] [$(pwd)] $1" >> "$HOOK_LOG"
-}
+# shellcheck source=lib/audit-log.sh
+source "$script_dir/lib/audit-log.sh"
+audit_init "pii-content-sniff"
+# Every allow/deny below is recorded as one JSON Lines record to
+# ~/.claude/debug/pii-content-sniff.jsonl via the shared helper — the same
+# mechanism every other policy hook uses, including audit_init's mkdir -p for
+# a first-run ~/.claude/debug/. This replaced an ad-hoc plain-text log file
+# that every other hook's log/rotation/S3-upload tooling didn't know about.
 
 payload="$(cat)"
 tool_name="$(printf '%s' "$payload" | jq -r '.tool_name // empty')"
@@ -60,6 +62,17 @@ fi
 # relative ones for local-test purposes.
 if [[ "$file_path" != /* ]]; then
   file_path="$(pwd)/$file_path"
+fi
+
+# PII_EXCLUDE_PREFIXES / pii_path_excluded (pii-patterns.sh) mark known
+# synthetic-fixture / test-infrastructure locations — shared with
+# pii-staged-scan.sh so both layers treat the same paths the same way. Without
+# this, e.g. run_staged_scan_cases.sh (whitelisted for the commit-time
+# scanner because its own test payloads are PII-shaped text) would still get
+# denied on a plain Read by this hook.
+if pii_path_excluded "$file_path"; then
+  audit_emit "$payload" allow file_path "$file_path" reason "excluded_fixture_path"
+  exit 0
 fi
 
 # Build the scan sample. Two sources, depending on the tool:
@@ -96,26 +109,26 @@ case "$tool_name" in
     # content scanning would just produce noise. Layer 1 (path policy) denies
     # these by name; this is a second guard for the same formats.
     #
-    # The skip is gated on the file EXTENSION, not on NUL presence alone. A
-    # previous version skipped any file with a NUL in the leading bytes, which
-    # was a fail-open bypass: prepending a single NUL to a text file (e.g.
-    # notes.txt) made the scanner classify it as binary and skip it, even
-    # though the file plainly contained PII. NUL alone is not evidence of a
-    # format we should ignore. So only the known binary extensions below are
-    # skipped on NUL; any other file (text extension or none) is scanned
-    # regardless of NULs. The sample read uses command substitution, which
-    # strips NUL bytes, so the scanned text is clean even when NULs are present.
+    # The skip is gated on the file EXTENSION (pii_is_binary_extension,
+    # pii-patterns.sh — shared with pii-staged-scan.sh's own binary skip),
+    # not on NUL presence alone. A previous version skipped any file with a
+    # NUL in the leading bytes, which was a fail-open bypass: prepending a
+    # single NUL to a text file (e.g. notes.txt) made the scanner classify it
+    # as binary and skip it, even though the file plainly contained PII. NUL
+    # alone is not evidence of a format we should ignore. So only known
+    # binary extensions are skipped on NUL; any other file (text extension or
+    # none) is scanned regardless of NULs. The sample read uses command
+    # substitution, which strips NUL bytes, so the scanned text is clean even
+    # when NULs are present.
     ext_lc="$(printf '%s' "${file_path##*.}" | tr '[:upper:]' '[:lower:]')"
-    case "$ext_lc" in
-      xlsx|xls|parquet|avro|sqlite|db|bin|gz|zip|tar|png|jpg|jpeg|gif|pdf|so|dylib|o)
-        head_len_before=$(head -c "$MAX_BINARY_CHECK_BYTES" "$file_path" | wc -c)
-        head_len_after=$(head -c "$MAX_BINARY_CHECK_BYTES" "$file_path" | tr -d '\0' | wc -c)
-        if [[ "$head_len_before" -ne "$head_len_after" ]]; then
-          logtofile "skip binary (binary extension + NUL detected): $file_path"
-          exit 0
-        fi
-        ;;
-    esac
+    if pii_is_binary_extension "$ext_lc"; then
+      head_len_before=$(head -c "$MAX_BINARY_CHECK_BYTES" "$file_path" | wc -c)
+      head_len_after=$(head -c "$MAX_BINARY_CHECK_BYTES" "$file_path" | tr -d '\0' | wc -c)
+      if [[ "$head_len_before" -ne "$head_len_after" ]]; then
+        audit_emit "$payload" allow file_path "$file_path" reason "skip_binary_extension_nul"
+        exit 0
+      fi
+    fi
 
     sample="$(head -c "$SNIFF_BYTES" "$file_path")"
     ;;
@@ -125,64 +138,28 @@ if [[ -z "$sample" ]]; then
   exit 0
 fi
 
-# Shared pattern definitions, sourced from the file deployed alongside this
-# hook. Defines pattern_names, pattern_regexes, pattern_confs (three parallel
-# positional arrays). Updates to detectors live in pii-patterns.sh so this
-# hook and the pre-commit scanner detect the same signals.
-script_dir="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck source=pii-patterns.sh
-. "$script_dir/pii-patterns.sh"
+# Score the sample once. pii_score_sample (pii-patterns.sh) sets PII_DISTINCT,
+# PII_DENSITY_MAX, PII_DENSITY_NAME, PII_DISTINCT_NAMES[], and PII_COUNTS[] —
+# the same counting logic pii-staged-scan.sh uses, so runtime and commit-time
+# detection cannot silently drift apart.
+pii_score_sample "$sample"
 
-# Match each pattern via awk's match() (POSIX ERE) and aggregate hits.
-#
-# We loop with match()/RSTART/RLENGTH rather than gsub() counting. gsub()
-# replaces each match including its consumed boundary character, so two PII
-# items separated by a single non-alphanumeric char (e.g. "SW1A 2AA SW1A 2AA")
-# count as one — the first match eats the space that the second needs as its
-# leading boundary. The loop instead re-scans from RSTART+RLENGTH-1, one char
-# before the match end, so that consumed trailing boundary is available again
-# as the next match's leading boundary. This counts adjacent matches correctly
-# and cannot undercount the density threshold. (All patterns match >=2 chars,
-# so the -1 rewind still guarantees forward progress and cannot loop forever.)
-#
-# Passing the regex via -v is safer than shell-substituting into a quoted
-# script body: no escape issues with $, ", or backslashes.
-#
-# bash 3.2 (the macOS system bash) lacks associative arrays, so we track
-# results inline rather than building a name→count map.
-distinct=0
-density_max=0
-density_name=""
-distinct_names=()
+# One combined summary instead of a separate log line per pattern — attached
+# to whichever audit_emit call below actually fires.
+counts_summary=""
 n=${#pattern_names[@]}
 for ((i=0; i<n; i++)); do
-  name="${pattern_names[$i]}"
-  regex="${pattern_regexes[$i]}"
-  conf="${pattern_confs[$i]}"
-  count="$(printf '%s' "$sample" | awk -v r="$regex" 'BEGIN{c=0} {s=$0; while (match(s,r)>0) {c++; adv=RSTART+RLENGTH-1; if (adv<1) adv=1; s=substr(s,adv)}} END{print c+0}' 2>/dev/null)"
-  if [[ -z "$count" ]]; then
-    count=0
-  fi
-  logtofile "pattern $name conf=$conf count=$count"
-  if [[ "$count" -gt 0 ]]; then
-    distinct=$((distinct + 1))
-    distinct_names+=("$name=$count")
-    if [[ "$conf" == "high" && "$count" -gt "$density_max" ]]; then
-      density_max="$count"
-      density_name="$name"
-    fi
-  fi
+  counts_summary+="${pattern_names[$i]}=${PII_COUNTS[$i]} "
 done
 
 deny() {
   local reason="$1"
-  logtofile "DENY $reason: $file_path"
-  jq -n --arg reason "$reason. File content matches the PII content-sniff scanner (pii-content-sniff.sh). If this file is genuinely synthetic or public, ask the user to confirm; do not summarise the file content in your response." \
-    '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $reason}}'
+  audit_emit "$payload" deny file_path "$file_path" reason "$reason" counts "$counts_summary"
+  pii_deny_json "$reason. File content matches the PII content-sniff scanner (pii-content-sniff.sh). If this file is genuinely synthetic or public, ask the user to confirm; do not summarise the file content in your response."
   exit 0
 }
 
-if [[ "$distinct" -ge "$DISTINCT_TRIP" ]]; then
+if [[ "$PII_DISTINCT" -ge "$DISTINCT_TRIP" ]]; then
   # Sort for deterministic log output. Build the array with a while-read loop
   # rather than mapfile or $(...) word-splitting: mapfile needs bash 4 (this
   # hook can run under macOS system bash 3.2), and an unquoted $(...) trips
@@ -190,14 +167,15 @@ if [[ "$distinct" -ge "$DISTINCT_TRIP" ]]; then
   sorted_distinct=()
   while IFS= read -r line; do
     sorted_distinct+=("$line")
-  done < <(printf '%s\n' "${distinct_names[@]}" | sort)
+  done < <(printf '%s\n' "${PII_DISTINCT_NAMES[@]}" | sort)
   joined="$(IFS=, ; echo "${sorted_distinct[*]}")"
-  deny "PII content detected: $distinct distinct categories ($joined)"
+  deny "PII content detected: $PII_DISTINCT distinct categories ($joined)"
 fi
 
-if [[ "$density_max" -ge "$DENSITY_TRIP" ]]; then
-  deny "PII content detected: $density_max matches of $density_name (high-confidence pattern)"
+if [[ "$PII_DENSITY_MAX" -ge "$DENSITY_TRIP" ]]; then
+  deny "PII content detected: $PII_DENSITY_MAX matches of $PII_DENSITY_NAME (high-confidence pattern)"
 fi
 
-# No trip — let the Read proceed.
+# No trip — let the operation proceed.
+audit_emit "$payload" allow file_path "$file_path" counts "$counts_summary"
 exit 0

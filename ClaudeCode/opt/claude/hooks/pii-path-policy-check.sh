@@ -16,10 +16,11 @@
 # the hook exits silently when `file_path` is empty.
 #
 # This layer catches files by name only. Layer 2 (pii-content-sniff.sh) scans
-# the file contents to catch misnamed files (Read only — the contents of a
-# Write/Edit don't exist on disk at the point the hook fires). The two layers
-# are independent and registered separately in managed-settings.json so
-# either can be tuned or audited without disturbing the other.
+# the file contents to catch misnamed files — on Read it scans the on-disk
+# file, and on Write/Edit/MultiEdit it scans the inline content/new_string
+# payload being written (there is nothing on disk yet for those tools). The
+# two layers are independent and registered separately in managed-settings.json
+# so either can be tuned or audited without disturbing the other.
 #
 # To add a new pattern:
 #   Append a glob to the deny_patterns array. The script uses bash glob
@@ -28,9 +29,21 @@
 set -u
 shopt -s extglob nocasematch
 
-logtofile() {
-  echo "[$(date)] [pii-path-policy] [$(pwd)] $1" >> "$HOME/.claude/debug/pii-path-policy.log"
-}
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=pii-patterns.sh
+. "$script_dir/pii-patterns.sh"
+# Only pii_deny_json() is used here — the pattern arrays and scan constants
+# are Layer 2's concern — but sharing one deny-envelope builder keeps the
+# PreToolUse response shape in a single place across both PII hooks.
+
+# shellcheck source=lib/audit-log.sh
+source "$script_dir/lib/audit-log.sh"
+audit_init "pii-path-policy"
+# Every allow/deny below is recorded as one JSON Lines record to
+# ~/.claude/debug/pii-path-policy.jsonl via the shared helper — the same
+# mechanism every other policy hook uses, including audit_init's mkdir -p for
+# a first-run ~/.claude/debug/. This replaced an ad-hoc plain-text log file
+# that every other hook's log/rotation/S3-upload tooling didn't know about.
 
 payload="$(cat)"
 file_path="$(printf '%s' "$payload" | jq -r '.tool_input.file_path // empty')"
@@ -45,27 +58,39 @@ fi
 basename_lc="$(printf '%s' "${file_path##*/}" | tr '[:upper:]' '[:lower:]')"
 dir_lc="$(printf '%s' "${file_path%/*}" | tr '[:upper:]' '[:lower:]')"
 
+# Extension alternations, factored out so adding/removing a data-file format
+# is one edit instead of eleven+. A previous version repeated the same
+# @(...) alternation inline on every stem pattern below — a missed line on
+# a future edit would silently leave e.g. "patients.ods" denied while
+# "donors.ods" was allowed, with nothing to catch the asymmetry.
+data_exts="@(csv|tsv|json|jsonl|ndjson|xlsx|xls|sql|sqlite|db|parquet|avro|xml|yaml|yml)"
+dump_backup_exts="@(csv|tsv|json|jsonl|ndjson|xlsx|xls|sql|sqlite|db|parquet|avro)"
+
 # Filename glob patterns. Matched against the lowercased basename only.
 # Order does not matter — first match wins for the log message.
 deny_basename_patterns=(
   # User / member / contact records
-  "users.@(csv|tsv|json|jsonl|ndjson|xlsx|xls|sql|sqlite|db|parquet|avro|xml|yaml|yml)"
-  "members.@(csv|tsv|json|jsonl|ndjson|xlsx|xls|sql|sqlite|db|parquet|avro|xml|yaml|yml)"
-  "customers.@(csv|tsv|json|jsonl|ndjson|xlsx|xls|sql|sqlite|db|parquet|avro|xml|yaml|yml)"
-  "contacts.@(csv|tsv|json|jsonl|ndjson|xlsx|xls|sql|sqlite|db|parquet|avro|xml|yaml|yml)"
-  "patients.@(csv|tsv|json|jsonl|ndjson|xlsx|xls|sql|sqlite|db|parquet|avro|xml|yaml|yml)"
-  "subjects.@(csv|tsv|json|jsonl|ndjson|xlsx|xls|sql|sqlite|db|parquet|avro|xml|yaml|yml)"
-  "service_users.@(csv|tsv|json|jsonl|ndjson|xlsx|xls|sql|sqlite|db|parquet|avro|xml|yaml|yml)"
-  "service-users.@(csv|tsv|json|jsonl|ndjson|xlsx|xls|sql|sqlite|db|parquet|avro|xml|yaml|yml)"
-  "referrals.@(csv|tsv|json|jsonl|ndjson|xlsx|xls|sql|sqlite|db|parquet|avro|xml|yaml|yml)"
-  "applicants.@(csv|tsv|json|jsonl|ndjson|xlsx|xls|sql|sqlite|db|parquet|avro|xml|yaml|yml)"
-  "donors.@(csv|tsv|json|jsonl|ndjson|xlsx|xls|sql|sqlite|db|parquet|avro|xml|yaml|yml)"
+  "users.$data_exts"
+  "members.$data_exts"
+  "customers.$data_exts"
+  "contacts.$data_exts"
+  "patients.$data_exts"
+  "subjects.$data_exts"
+  "service_users.$data_exts"
+  "service-users.$data_exts"
+  "referrals.$data_exts"
+  "applicants.$data_exts"
+  "donors.$data_exts"
 
   # Common export / dump naming. Wildcards both sides of the token so dated
-  # filenames like "members-export-2026-01.xlsx" still match.
-  "*[-_]export*.@(csv|tsv|json|jsonl|ndjson|xlsx|xls|sql|sqlite|db|parquet|avro|xml|yaml|yml)"
-  "*[-_]dump*.@(csv|tsv|json|jsonl|ndjson|xlsx|xls|sql|sqlite|db|parquet|avro)"
-  "*[-_]backup*.@(csv|tsv|json|jsonl|ndjson|xlsx|xls|sql|sqlite|db|parquet|avro)"
+  # filenames like "members-export-2026-01.xlsx" still match. Bare
+  # "export.<ext>"/"dump.<ext>"/"backup.<ext>" (no separator before the
+  # token) get their own entries below — the "*[-_]token*" globs above
+  # require a leading "-" or "_" and so miss a plain "export.csv".
+  "*[-_]export*.$data_exts"
+  "*[-_]dump*.$dump_backup_exts"
+  "*[-_]backup*.$dump_backup_exts"
+  "export.$data_exts"
   "dump.@(sql|sqlite|db)"
   "backup.@(sql|sqlite|db)"
 
@@ -88,8 +113,11 @@ deny_dir_segments=(
   "patients"
   "customers-export"
   "members-export"
+  "export"
   "exports"
+  "dump"
   "dumps"
+  "backup"
   "backups"
   "pii"
   "personal-data"
@@ -101,12 +129,8 @@ deny_dir_segments=(
 
 deny() {
   local reason="$1" match="$2"
-  logtofile "DENY $match: $file_path"
-  # Use jq to safely escape the path/match into the reason field. Constructing
-  # JSON with printf would mishandle quotes, backslashes, and newlines in paths.
-  jq -n \
-    --arg reason "$reason ($match). File path matches the PII path/extension denylist (pii-path-policy-check.sh). If this file genuinely does not contain PII, ask the user to rename it or move it out of a data folder; do not bypass." \
-    '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $reason}}'
+  audit_emit "$payload" deny file_path "$file_path" match "$match" reason "$reason"
+  pii_deny_json "$reason ($match). File path matches the PII path/extension denylist (pii-path-policy-check.sh). If this file genuinely does not contain PII, ask the user to rename it or move it out of a data folder; do not bypass."
   exit 0
 }
 
@@ -129,6 +153,9 @@ for seg in "${segments[@]}"; do
 done
 
 # No match — allow Claude Code's default permission handling to take over.
-# Emitting an explicit allow short-circuits later permission checks, which we
-# do not want here: this hook only adds denies on top of existing controls.
+# Emitting an explicit allow in hookSpecificOutput would short-circuit later
+# permission checks, which we do not want here: this hook only adds denies on
+# top of existing controls. audit_emit only appends a log record; it does not
+# touch the hook's stdout/exit behaviour.
+audit_emit "$payload" allow file_path "$file_path"
 exit 0

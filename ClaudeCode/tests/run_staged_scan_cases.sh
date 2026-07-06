@@ -71,6 +71,37 @@ stage_and_scan() {
   rm -f "$path"
 }
 
+# stage_and_scan_raw <test-name> <expect-exit> <path> <printf-fmt> [args...]
+# Like stage_and_scan, but the content is written to disk with a redirected
+# printf using the given format/args, never captured into a bash variable
+# (not even via command substitution) first. bash scalars cannot hold an
+# embedded NUL byte — they are C strings internally, and this holds for
+# command-substitution results too, not just plain assignment — so any
+# content with a real NUL must be constructed this way, never passed as a
+# $content string parameter the way stage_and_scan's other callers do.
+stage_and_scan_raw() {
+  local name="$1" expect="$2" path="$3"
+  shift 3
+  total=$((total + 1))
+  mkdir -p "$(dirname "$path")"
+  # shellcheck disable=SC2059  # the format string IS the caller-supplied
+  # content, by design — that's how a literal NUL byte reaches the file.
+  printf "$@" > "$path"
+  git add "$path" 2>/dev/null
+  set +e
+  "$scanner" "$path" >/dev/null 2>&1
+  local rc=$?
+  set -e 2>/dev/null || true
+  if [[ "$rc" -eq "$expect" ]]; then
+    printf 'PASS  %-55s rc=%d\n' "$name" "$rc"
+  else
+    printf 'FAIL  %-55s expected=%d actual=%d\n' "$name" "$expect" "$rc"
+    fail=$((fail + 1))
+  fi
+  git rm -f --quiet --cached -- "$path" 2>/dev/null
+  rm -f "$path"
+}
+
 # ── Test cases ───────────────────────────────────────────────────────────────
 
 # Clean files — exit 0.
@@ -114,19 +145,65 @@ Postcode: EC1A 1BB
 Phone: +44 20 7946 0000
 "
 
-# Excluded path — even with clear PII, the scanner must skip fixtures dir.
-stage_and_scan "PII inside excluded fixtures path is skipped" 0 \
-  "ClaudeCode/tests/cases/fixtures/synthetic.md" \
+# Excluded path — even with clear PII, the scanner must skip the pii-content/
+# fixture directory (it exists specifically to hold PII-shaped detection
+# fixtures for pii-content-sniff.sh's own test suite).
+stage_and_scan "PII inside excluded pii-content/ fixtures path is skipped" 0 \
+  "ClaudeCode/tests/cases/fixtures/pii-content/synthetic.md" \
   "Email: alex@example.test
 Postcode: SW1A 1AA
 Phone: +44 20 7946 0000
 "
 
-# Binary file — skipped by NUL-byte detector.
-binary_content=$'\x00\x01\x02fake-binary-payload alex@example.test SW1A 1AA +44 20 7946 0000'
-stage_and_scan "binary file with embedded PII is skipped" 0 \
+# Regression: the exclusion is scoped to pii-content/ specifically, not the
+# whole fixtures/ tree — a file directly under fixtures/ (not pii-content/)
+# must still trip. (Before this fix, EXCLUDE_PREFIXES was the broad
+# "ClaudeCode/tests/cases/fixtures/" prefix, which silently exempted this
+# path — and pii-content-wild/ below it — from ever being scanned.)
+stage_and_scan "regression (narrowed exclusion): fixtures/ root (not pii-content/) still trips" 1 \
+  "ClaudeCode/tests/cases/fixtures/synthetic-not-excluded.md" \
+  "Email: alex@example.test
+Postcode: SW1A 1AA
+Phone: +44 20 7946 0000
+"
+
+# Regression: pii-content-wild/ is a false-positive guard that must be
+# scanned normally — see its MANIFEST.md, which asserts it is "not excluded".
+stage_and_scan "regression (wild-corpus not silently excluded): pii-content-wild/ still trips" 1 \
+  "ClaudeCode/tests/cases/fixtures/pii-content-wild/synthetic-leak.fragment" \
+  "Email: alex@example.test
+Postcode: SW1A 1AA
+Phone: +44 20 7946 0000
+"
+
+# The exact-path exclusion for this test runner itself (shared with
+# pii-content-sniff.sh via PII_EXCLUDE_PREFIXES in pii-patterns.sh) — its own
+# inline test payloads above are PII-shaped text that must not block a commit
+# touching this file.
+stage_and_scan "excluded exact path: run_staged_scan_cases.sh itself is skipped" 0 \
+  "ClaudeCode/tests/run_staged_scan_cases.sh" \
+  "Email: alex@example.test
+Postcode: SW1A 1AA
+Phone: +44 20 7946 0000
+"
+
+# Binary file (.bin extension + real NUL byte) — skipped by extension plus
+# git's own binary classification (see stage_and_scan_raw's comment for why
+# this can't use a bash $content variable the way every other case here does).
+#
+# Regression: an earlier version of this test used a $'\x00...' bash
+# variable for the binary content. bash truncates a scalar at its first NUL
+# byte at the moment of assignment (not just on capture via command
+# substitution), so that variable was silently empty from the start — the
+# "file" staged was 0 bytes, and the test passed because
+# `[[ -z "$sample" ]] && return 0` caught an empty sample, not because any
+# binary detection fired. This version writes the NUL directly to disk via
+# printf's redirect, which is unaffected by that limitation, so the file
+# genuinely contains a leading NUL plus PII-shaped text and this test
+# actually exercises the extension + git-binary-classification check.
+stage_and_scan_raw "binary file with embedded PII is skipped" 0 \
   "data/binary.bin" \
-  "$binary_content"
+  '\000\001\002fake-binary-payload alex@example.test SW1A 1AA +44 20 7946 0000'
 
 # Sub-threshold cases.
 stage_and_scan "two categories - below distinct trip" 0 \
@@ -163,13 +240,16 @@ stage_and_scan "regression (undercount fixed): 18 packed postcodes trip" 1 \
   "data/postcodes.md" \
   "$(printf 'SW1A 2AA %.0s' {1..18})"
 
-# NOTE: the NUL-byte bypass that affects the runtime content-sniff hook does NOT
-# reproduce here. The staged scanner reads the blob via blob="$(git show :path)",
-# and bash command substitution strips NUL bytes, so the in-script binary check
-# (${blob:0:N} before vs after tr -d '\0') sees equal lengths and does NOT skip —
-# the scanner then scans the NUL-stripped text and detects the PII. The bypass is
-# therefore content-sniff-only; the content-sniff fix gates the binary skip on
-# file extension (see nul_prefixed_pii.txt in pii-content-sniff.jsonl).
+# NOTE: the NUL-byte bypass that affects the runtime content-sniff hook does
+# NOT reproduce here. git's own binary classification (`git diff --cached
+# --numstat`) flags ANY blob containing a NUL as binary — including a plain
+# text file with one stray NUL byte — so the staged scanner also gates its
+# binary skip on file EXTENSION (pii_is_binary_extension, pii-patterns.sh),
+# exactly like pii-content-sniff.sh does. A NUL-prefixed .md/.txt file is
+# still scanned normally here; see the regression case below.
+stage_and_scan_raw "regression (NUL-prefixed text is still scanned, not classified binary)" 1 \
+  "docs/nul_prefixed.md" \
+  '\000Email: alex@example.test\nPostcode: SW1A 1AA\nPhone: +44 20 7946 0000\n'
 
 # No-args invocation — scans whole index. Stage three files (one tripping)
 # and confirm scanner exits non-zero with no positional args.

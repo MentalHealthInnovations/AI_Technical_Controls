@@ -5,9 +5,18 @@
 #   run_hook_cases.sh <hook-path> <cases.jsonl>
 #
 # Case file format: one JSON object per line with fields:
-#   name   — short label
-#   input  — object passed as tool_input to the hook
-#   expect — "deny", "allow", or "unset"
+#   name      — short label
+#   input     — object passed as tool_input to the hook
+#   expect    — "deny", "allow", or "unset"
+#   tool_name — optional; the hook's tool_name field (e.g. "Write", "Edit",
+#               "MultiEdit"). Omit for Read-shaped cases that only carry a
+#               file_path — that's how the payload has always been built, and
+#               most cases still don't need it. Hooks that branch on
+#               tool_name (e.g. pii-content-sniff.sh, which scans on-disk
+#               content for Read but the inline write payload for
+#               Write/Edit/MultiEdit) need this set to exercise those branches
+#               at all — without it, the payload has no tool_name and every
+#               case silently falls through to the Read branch.
 #
 # A case is "unset" when the hook exits 0 without emitting a hookSpecificOutput
 # decision (e.g. our PII path hook lets the harness's default permission flow
@@ -38,8 +47,13 @@ while IFS= read -r line; do
   name=$(printf '%s' "$line" | jq -r '.name')
   expect=$(printf '%s' "$line" | jq -r '.expect')
   input=$(printf '%s' "$line" | jq -c '.input')
+  tool_name=$(printf '%s' "$line" | jq -r '.tool_name // empty')
 
-  payload=$(jq -n --argjson i "$input" '{tool_input: $i}')
+  if [[ -n "$tool_name" ]]; then
+    payload=$(jq -n --argjson i "$input" --arg tn "$tool_name" '{tool_name: $tn, tool_input: $i}')
+  else
+    payload=$(jq -n --argjson i "$input" '{tool_input: $i}')
+  fi
   out=$(printf '%s' "$payload" | "$hook" 2>/dev/null || true)
 
   if [[ -z "$out" ]]; then

@@ -23,7 +23,7 @@ export AWS_CONFIG_FILE="/var/root/.aws/config"
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 
 # Included hook logs
-HOOK_LOGS=(bash-policy webfetch-policy output-redact prompt-submit session-audit tool-audit)
+HOOK_LOGS=(bash-policy webfetch-policy pii-path-policy pii-content-sniff output-redact prompt-submit session-audit tool-audit)
 
 # Find the aws cli
 if ! AWS_BIN="$(command -v aws 2>/dev/null)"; then

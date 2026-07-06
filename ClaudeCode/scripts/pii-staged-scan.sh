@@ -17,28 +17,13 @@
 #   1 — PII detected; commit/CI should fail
 #   2 — invocation error (missing dependency, not a git repo, etc.)
 #
-# pattern_names / pattern_regexes / pattern_confs are defined in pii-patterns.sh,
-# sourced at runtime; shellcheck cannot follow that include (SC1091) so it would
-# otherwise flag them as unassigned (SC2154).
+# pattern_names / pattern_regexes / pattern_confs / DISTINCT_TRIP /
+# DENSITY_TRIP / SNIFF_BYTES / pii_score_sample / PII_EXCLUDE_PREFIXES /
+# pii_path_excluded are defined in pii-patterns.sh, sourced at runtime; the
+# include cannot be followed at lint time (SC1091) so unassigned-variable
+# checks (SC2154) would otherwise misfire on all of them.
 # shellcheck disable=SC2154
 set -u
-
-DISTINCT_TRIP=3
-DENSITY_TRIP=10
-MAX_BINARY_CHECK_BYTES=1024
-SNIFF_BYTES=65536
-
-# Paths that are deliberately committed synthetic PII (test fixtures). The
-# scanner skips any staged file whose path starts with one of these prefixes.
-# Keep this list narrow — anything broader risks creating safe-harbour zones
-# for accidental PII.
-EXCLUDE_PREFIXES=(
-  "ClaudeCode/tests/cases/fixtures/"
-  # The staged-scan test runner embeds synthetic PII inline to drive the
-  # scanner against temporary git repos. Its values are fictional (example.test
-  # addresses, Ofcom reserved phone range, canonical example IBAN/postcode).
-  "ClaudeCode/tests/run_staged_scan_cases.sh"
-)
 
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 repo_root="$(cd "$script_dir/../.." && pwd)"
@@ -64,7 +49,14 @@ fi
 # with args, treat each as a path (this is how pre-commit invokes hooks).
 if [[ $# -eq 0 ]]; then
   # Filter out deletions (only files still present in the index can be scanned).
-  mapfile -t files < <(git diff --cached --name-only --diff-filter=ACMR)
+  # while-read loop rather than mapfile: mapfile needs bash 4, and this
+  # script runs directly on developer Macs via pre-commit (language: system),
+  # where the system bash is 3.2 — the same constraint pii-content-sniff.sh
+  # and run_wild_corpus_cases.sh already document and avoid.
+  files=()
+  while IFS= read -r line; do
+    files+=("$line")
+  done < <(git diff --cached --name-only --diff-filter=ACMR)
 else
   files=("$@")
 fi
@@ -74,21 +66,40 @@ fi
 scan_file() {
   local path="$1"
 
-  # An exclude entry ending in "/" is a directory prefix: it matches that path
-  # and anything beneath it. An entry without a trailing "/" is an EXACT path
-  # match. We avoid a bare "$prefix"* glob because that matched on a substring
-  # boundary — e.g. the file entry "…/run_staged_scan_cases.sh" would also have
-  # excluded "…/run_staged_scan_cases.sh.bak", silently creating a safe-harbour
-  # for any derived file.
-  for prefix in "${EXCLUDE_PREFIXES[@]}"; do
-    if [[ "$prefix" == */ ]]; then
-      if [[ "$path" == "$prefix"* ]]; then
-        return 0
-      fi
-    elif [[ "$path" == "$prefix" ]]; then
+  # PII_EXCLUDE_PREFIXES / pii_path_excluded live in pii-patterns.sh, shared
+  # with pii-content-sniff.sh. The extra prefix below is staged-scan-only:
+  # fixtures/pii-content/ intentionally contains PII-shaped text so the
+  # runtime hook's own test suite can verify detection on Read, but that same
+  # content must not block committing the fixture files themselves.
+  if pii_path_excluded "$path" "ClaudeCode/tests/cases/fixtures/pii-content/"; then
+    return 0
+  fi
+
+  # Skip known binary formats — same intent, same extension list
+  # (pii_is_binary_extension, pii-patterns.sh), as pii-content-sniff.sh.
+  #
+  # Gated on EXTENSION as well as git's own binary classification (`--numstat`
+  # prints "-" for both counts on a binary blob, computed by git directly
+  # from the blob bytes), not on git's classification alone: git's own
+  # heuristic flags ANY file containing a NUL as binary, including a plain
+  # text file with a single stray NUL byte — exactly the fail-open bypass
+  # already fixed in pii-content-sniff.sh (a NUL-prefixed notes.txt must
+  # still be scanned, not skipped). Extension-gating means only files that
+  # are already binary-shaped by name get the git-classification skip.
+  #
+  # This replaces an earlier NUL-byte sniff on $blob that could never fire:
+  # bash command substitution captures $blob as a scalar, and bash scalars
+  # cannot hold an embedded NUL at all (they are C strings internally), so
+  # that check was always false regardless of the file's actual content.
+  local ext_lc="${path##*.}"
+  ext_lc="$(printf '%s' "$ext_lc" | tr '[:upper:]' '[:lower:]')"
+  if pii_is_binary_extension "$ext_lc"; then
+    local numstat
+    numstat="$(git diff --cached --numstat -- "$path" 2>/dev/null)"
+    if [[ "$numstat" == -$'\t'-$'\t'* ]]; then
       return 0
     fi
-  done
+  fi
 
   # Pull the staged blob. `git show :path` returns the version in the index,
   # which is what would be committed — not the working-tree copy.
@@ -99,55 +110,29 @@ scan_file() {
     return 0
   fi
 
-  # Binary detection — NUL byte in the first KiB. Same heuristic as the
-  # runtime sniffer. Imperfect (UTF-16 false-positives) but consistent.
-  local head_before head_after
-  head_before=$(printf '%s' "${blob:0:$MAX_BINARY_CHECK_BYTES}" | wc -c)
-  head_after=$(printf '%s' "${blob:0:$MAX_BINARY_CHECK_BYTES}" | tr -d '\0' | wc -c)
-  if [[ "$head_before" -ne "$head_after" ]]; then
-    return 0
-  fi
-
   local sample="${blob:0:$SNIFF_BYTES}"
   [[ -z "$sample" ]] && return 0
 
-  local distinct=0 density_max=0 density_name=""
-  local distinct_names=()
-  local n="${#pattern_names[@]}"
-  local i name regex conf count
-  for ((i=0; i<n; i++)); do
-    name="${pattern_names[$i]}"
-    regex="${pattern_regexes[$i]}"
-    conf="${pattern_confs[$i]}"
-    # match()/RSTART/RLENGTH loop, not gsub() counting: gsub consumes each
-    # match's boundary char, undercounting adjacent PII items (two postcodes
-    # separated by one space count as one). Re-scanning from RSTART+RLENGTH-1
-    # keeps the consumed trailing boundary available as the next match's leading
-    # boundary. All patterns match >=2 chars, so the rewind still advances.
-    # Kept identical to pii-content-sniff.sh so both layers count the same.
-    count="$(printf '%s' "$sample" | awk -v r="$regex" 'BEGIN{c=0} {s=$0; while (match(s,r)>0) {c++; adv=RSTART+RLENGTH-1; if (adv<1) adv=1; s=substr(s,adv)}} END{print c+0}' 2>/dev/null)"
-    [[ -z "$count" ]] && count=0
-    if [[ "$count" -gt 0 ]]; then
-      distinct=$((distinct + 1))
-      distinct_names+=("$name=$count")
-      if [[ "$conf" == "high" && "$count" -gt "$density_max" ]]; then
-        density_max="$count"
-        density_name="$name"
-      fi
-    fi
-  done
+  # Same counting logic as pii-content-sniff.sh, from pii-patterns.sh's
+  # pii_score_sample(): sets PII_DISTINCT, PII_DENSITY_MAX, PII_DENSITY_NAME,
+  # PII_DISTINCT_NAMES[]. Kept in one place so runtime and commit-time
+  # detection cannot silently drift apart.
+  pii_score_sample "$sample"
 
   local tripped="" reason=""
-  if [[ "$distinct" -ge "$DISTINCT_TRIP" ]]; then
+  if [[ "$PII_DISTINCT" -ge "$DISTINCT_TRIP" ]]; then
     local joined
+    # while-read loop rather than mapfile — see the bash-3.2 note above.
     local sorted=()
-    mapfile -t sorted < <(printf '%s\n' "${distinct_names[@]}" | sort)
+    while IFS= read -r line; do
+      sorted+=("$line")
+    done < <(printf '%s\n' "${PII_DISTINCT_NAMES[@]}" | sort)
     joined="$(IFS=, ; echo "${sorted[*]}")"
     tripped="distinct"
-    reason="$distinct distinct PII categories ($joined)"
-  elif [[ "$density_max" -ge "$DENSITY_TRIP" ]]; then
+    reason="$PII_DISTINCT distinct PII categories ($joined)"
+  elif [[ "$PII_DENSITY_MAX" -ge "$DENSITY_TRIP" ]]; then
     tripped="density"
-    reason="$density_max matches of $density_name (high-confidence pattern)"
+    reason="$PII_DENSITY_MAX matches of $PII_DENSITY_NAME (high-confidence pattern)"
   fi
 
   if [[ -n "$tripped" ]]; then
@@ -176,7 +161,8 @@ Resolve by:
   - removing the PII content from the file, OR
   - replacing real values with synthetic/redacted equivalents, OR
   - if the file is a deliberate fixture, adding its path prefix to
-    EXCLUDE_PREFIXES in ClaudeCode/scripts/pii-staged-scan.sh (security review required).
+    PII_EXCLUDE_PREFIXES in ClaudeCode/opt/claude/hooks/pii-patterns.sh
+    (shared with the runtime hook — security review required).
 
 EOF
   exit 1

@@ -23,6 +23,10 @@
 {"name": "file inside dsar/ dir", "input": {"file_path": "/repo/dsar/2026-01.txt"}, "expect": "deny"}
 {"name": "file inside personal-data/ dir", "input": {"file_path": "/repo/personal-data/foo.md"}, "expect": "deny"}
 {"name": "file inside service-users/ dir", "input": {"file_path": "/repo/service-users/list.md"}, "expect": "deny"}
+{"name": "regression (bare export gap fixed): export.csv with no separator", "input": {"file_path": "/repo/data/export.csv"}, "expect": "deny"}
+{"name": "regression (singular export dir gap fixed): file inside export/ dir", "input": {"file_path": "/repo/export/jan.csv"}, "expect": "deny"}
+{"name": "regression (singular dump dir gap fixed): file inside dump/ dir", "input": {"file_path": "/repo/dump/snapshot.bin"}, "expect": "deny"}
+{"name": "regression (singular backup dir gap fixed): file inside backup/ dir", "input": {"file_path": "/repo/backup/old.sql"}, "expect": "deny"}
 {"name": "source file (allowed)", "input": {"file_path": "/repo/src/main.go"}, "expect": "unset"}
 {"name": "README.md (allowed)", "input": {"file_path": "/repo/README.md"}, "expect": "unset"}
 {"name": "package.json (allowed, not in deny list)", "input": {"file_path": "/repo/package.json"}, "expect": "unset"}
