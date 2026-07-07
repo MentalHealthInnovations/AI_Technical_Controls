@@ -384,7 +384,7 @@ What CI covers:
 | YAML validity | `check-yaml` | broken workflow / config YAML |
 | Hygiene | `end-of-file-fixer`, `trailing-whitespace`, `mixed-line-ending`, `check-merge-conflict`, `check-added-large-files`, shebang checks | stray bytes, unresolved conflicts, accidental large files |
 
-> **CI does not verify guardrail *behaviour*.** It checks that scripts parse and configs are valid, not that a given command is still blocked. The `/test-guardrails` suite is the behaviour regression net; a full run is required in the PR description for changes to hooks, permissions, sandbox config, or `managed-settings.json` (see the PR template).
+> **CI does not verify guardrail *behaviour*.** It checks that scripts parse and configs are valid, not that a given command is still blocked. CI (pre-commit + hook-tests) is nonetheless the mandatory merge gate. The `/test-guardrails` suite is a recommended additional behaviour check for changes to hooks, permissions, sandbox config, or `managed-settings.json` — not a requirement (see the PR template).
 
 `.pre-commit-config.yaml` is in the sandbox write-deny list by design, so Claude Code cannot edit it — the same control that protects `.git/hooks` and `.husky`. Maintainers edit it by hand.
 

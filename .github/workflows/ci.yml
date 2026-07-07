@@ -9,10 +9,11 @@ name: CI
 #   - hook-tests: ClaudeCode/tests/run_all.sh — the regression suite for the
 #     PII hook layers (path-policy, content-sniff, staged-scan, wild corpus).
 #
-# CI covers syntax, config validity, and hook-script regression. It does NOT
-# verify live guardrail behaviour under Claude Code — /test-guardrails is the
-# behaviour regression net, and the PR template requires a full run for
-# changes to hooks, permissions, sandbox config, or managed-settings.json.
+# CI covers syntax, config validity, and hook-script regression, and is the
+# mandatory merge gate. It does NOT verify live guardrail behaviour under
+# Claude Code — /test-guardrails is a recommended additional check for
+# changes to hooks, permissions, sandbox config, or managed-settings.json,
+# not a required one (see the PR template).
 
 on:
   pull_request:

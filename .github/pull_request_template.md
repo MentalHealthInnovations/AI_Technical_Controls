@@ -4,11 +4,12 @@
 
 ## Guardrail test results
 
-<!-- CI (pre-commit) checks shell lint/format and config validity only. It does NOT verify guardrail behaviour. -->
-<!-- The /test-guardrails suite is the behaviour regression net. Run it in Claude Code (open this repo as the -->
-<!-- working directory, then type /test-guardrails at the prompt). -->
-<!-- PRs that modify hooks, permissions, sandbox config, or managed-settings.json must include a full run. -->
-<!-- PRs that only change documentation or test fixtures should include a run if practical. -->
+<!-- CI (pre-commit + hook-tests) is the mandatory gate for this PR: it checks shell lint/format, config -->
+<!-- validity, and the hook regression suite, but not live guardrail behaviour under Claude Code. -->
+<!-- The /test-guardrails suite is a recommended additional check for PRs that modify hooks, permissions, -->
+<!-- sandbox config, or managed-settings.json — not a required one. Run it in Claude Code (open this repo -->
+<!-- as the working directory, then type /test-guardrails at the prompt) and paste the results below if you do. -->
+<!-- If not run, say so and why (e.g. "not run — no live agent session available for this change"). -->
 
 <details>
 <summary>Test run output</summary>

@@ -3,7 +3,7 @@ name: ship-feature
 description: One-shot feature delivery. Given a task description and its boundaries, sync main, branch off it, implement with frequent small conventional commits, push, test the change against the installed policy (running /test-guardrails for enforced-config changes), and open a PR with gh. Use when the user hands off a self-contained feature/fix to take from a clean main all the way to an open PR. Any command the agent cannot run — including the privileged install needed to test enforced-policy changes — is handed back to the user to run.
 ---
 
-You are running a **one-shot feature delivery**. The user has described a task and its boundaries; your job is to take it from a clean, up-to-date `main` all the way to an open pull request, in small reviewable steps, without further prompting beyond what the boundaries leave genuinely ambiguous. A PR that changes enforced policy (hooks, `managed-settings.json`, permissions, allowlist, or the test skill) is **tested against the installed policy before it is opened** — never opened untested.
+You are running a **one-shot feature delivery**. The user has described a task and its boundaries; your job is to take it from a clean, up-to-date `main` all the way to an open pull request, in small reviewable steps, without further prompting beyond what the boundaries leave genuinely ambiguous. CI (pre-commit + hook-tests) is the mandatory merge gate for every PR. For a PR that changes enforced policy (hooks, `managed-settings.json`, permissions, allowlist, or the test skill), testing the branch against the installed policy with `/test-guardrails` before opening is a recommended additional check, not a requirement — do it where practical, and say plainly in the PR if it wasn't done.
 
 ## Inputs
 
@@ -59,17 +59,19 @@ If `git pull`/`fetch` is blocked or fails on network/auth, hand those commands t
 
 ### 5. Test before opening the PR
 
+CI (pre-commit + hook-tests, run automatically once the PR is open) is the mandatory gate — nothing in this step blocks opening the PR.
+
 **Decide whether this PR changes enforced policy.** It does if the diff touches any of: hook scripts (`ClaudeCode/opt/claude/hooks/`), `managed-settings.json`, permission rules, the domain allowlist or path scopes, or the `/test-guardrails` skill itself.
 
-- **If it does not** (e.g. docs, this skill, fixtures, code with no policy effect): no install or guardrail run is required. Note in the PR that it is a docs/non-enforcing change and skip to step 6. Run `/test-guardrails` anyway only if it is practical and meaningful.
+- **If it does not** (e.g. docs, this skill, fixtures, code with no policy effect): no install or guardrail run needed. Note in the PR that it is a docs/non-enforcing change and skip to step 6. Run `/test-guardrails` anyway only if it is practical and meaningful.
 
-- **If it does**, the change must be tested against the **installed** policy before the PR is opened — and the test only means something if the *branch's* version is what is installed. This matters because the active hooks and settings run from managed locations, **not** from the repo working tree:
+- **If it does**, a live run against the **installed** policy is a recommended additional check before opening — not a requirement — and only means something if the *branch's* version is what is installed. This matters because the active hooks and settings run from managed locations, **not** from the repo working tree:
   - hooks: `/opt/claude/hooks/`
   - settings + managed `CLAUDE.md`: `/Library/Application Support/ClaudeCode/`
 
   The repo's own `update_ai_governance` / `pull_claude_governance.sh` path will **not** do this for you: it clones and deploys **merged `main` from GitHub**, so it cannot install an un-merged branch. Running it now would test `main`, not your change, a false pass.
 
-  **You cannot perform the install yourself.** Writing to `/opt`, `/Library`, and `/usr/local` is outside the sandbox, and the deploy needs `sudo` (privilege escalation is blocked). So **hand the install to the user** and wait. Do this:
+  **You cannot perform the install yourself.** Writing to `/opt`, `/Library`, and `/usr/local` is outside the sandbox, and the deploy needs `sudo` (privilege escalation is blocked). If the user wants this recommended check done, **hand the install to them** and wait. Do this:
 
   1. Have the user deploy the branch's config with the repo's own script, run from the repo root on the branch under test:
 
@@ -80,21 +82,21 @@ If `git pull`/`fetch` is blocked or fails on network/auth, hand those commands t
      This copies the checkout's `managed-settings.json`, `CLAUDE.md`, and hooks into the managed locations (the same destinations `pull_claude_governance.sh` uses) and stamps `VERSION` with a `local:<sha>[-dirty]` marker so a test deploy is distinguishable from a released `main` checkout. It deploys the whole checkout, so there is no per-file copy to assemble or get wrong. Tell the user this overwrites their live policy with the branch version, and that `update_ai_governance` restores the released version afterwards (it re-pulls `main`).
   2. **Wait** for the user to confirm the deploy succeeded. Do not proceed on the assumption it worked. The script prints the deployed `VERSION`: confirm it reads `local:<sha>` for the branch under test, not a bare `main` SHA.
   3. Then run `/test-guardrails` and read the results. The suite restarts may be needed for some hook changes to take effect, so if results look like the old version, ask the user to confirm the deploy landed (and, where relevant, that the session was restarted) before trusting them.
-  4. If any test is an unexpected result (especially a BLOCKED case that came back ALLOWED), **stop**, that is a guardrail regression. Fix it on the branch, have the user re-deploy, and re-run. Do not open the PR with a known regression unless the user explicitly accepts it.
+  4. If any test is an unexpected result (especially a BLOCKED case that came back ALLOWED), that is a guardrail regression worth fixing before merge even though it doesn't block opening the PR — flag it clearly, fix it on the branch, have the user re-deploy, and re-run.
 
-  Keep the full `/test-guardrails` results table; it goes into the PR body in the next step.
+  If the user declines this check or it isn't practical (e.g. no access to a machine to deploy the branch to), skip it and say so plainly in the PR body — do not treat it as a blocker to opening the PR. If it was run, keep the full `/test-guardrails` results table; it goes into the PR body in the next step.
 
 ### 6. Open the PR with `gh`
 
 - Read the repo's PR template ([.github/pull_request_template.md](../../../.github/pull_request_template.md)) **in this turn** and populate **every** section against the full diff vs the base branch — re-derive the description from `git diff main...HEAD`, not from memory of the session. Run `git diff --stat main...HEAD` first to ground it.
 - Use a Conventional-Commits-style PR title (it becomes the squash-merge message).
 - Pass the body via a **file**, not command substitution: Write the body to a temp file, then `gh pr create --title "type(scope): ..." --base main --head <branch> --body-file <path>`. Do **not** use `--body "$(cat ...)"` or heredocs — the bash-policy hook blocks them.
-- For an enforced-policy PR (step 5), paste the **full `/test-guardrails` results table you just produced** into the template's `<details>` block — not a remembered or assumed result. For a non-enforcing PR, state in that block that a run was not required and why. Either way, complete the Security risk assessment honestly: tick the boxes that apply and fill the prose subsections (write "None" where a box doesn't apply rather than leaving placeholders).
+- If you ran `/test-guardrails` in step 5, paste the **full results table you just produced** into the template's `<details>` block — not a remembered or assumed result. If you didn't run it, state in that block that it wasn't run and why (not required — CI is the mandatory gate). Either way, complete the Security risk assessment honestly: tick the boxes that apply and fill the prose subsections (write "None" where a box doesn't apply rather than leaving placeholders).
 - If `gh` is unauthenticated or the create is blocked, hand the user the exact `gh pr create ...` command (and tell them where the body file is) and stop.
 
 ### 7. Report
 
-Give the user: the branch name, the commit list (`git log --oneline main..HEAD`), the PR URL (or the command you handed off if creation was blocked), the `/test-guardrails` outcome (full pass, or which tests regressed), and a short note of anything left for them to run. If you handed off a `sudo ClaudeCode/deploy_local_governance.sh` install in step 5, remind the user their live policy now reflects the branch and that `update_ai_governance` restores the released `main` version. Be honest about what was verified vs. assumed: if tests didn't run, were run against the wrong version, or a step was handed off, say so plainly.
+Give the user: the branch name, the commit list (`git log --oneline main..HEAD`), the PR URL (or the command you handed off if creation was blocked), the `/test-guardrails` outcome if you ran it (full pass, or which tests regressed) or a note that it wasn't run, and a short note of anything left for them to run. If you handed off a `sudo ClaudeCode/deploy_local_governance.sh` install in step 5, remind the user their live policy now reflects the branch and that `update_ai_governance` restores the released `main` version. Be honest about what was verified vs. assumed: if tests didn't run, were run against the wrong version, or a step was handed off, say so plainly.
 
 ## Throughout
 

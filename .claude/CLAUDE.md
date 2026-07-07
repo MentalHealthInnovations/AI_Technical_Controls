@@ -7,7 +7,7 @@ PR descriptions in this repo **must** follow [`.github/pull_request_template.md`
 Required sections, in order:
 
 1. **Summary** — what the change does and why.
-2. **Guardrail test results** — paste the `/test-guardrails` markdown table inside the `<details>` block. A full run is mandatory for PRs touching hooks, permissions, sandbox config, or `managed-settings.json`; include one if practical for docs/fixture-only PRs.
+2. **Guardrail test results** — CI (pre-commit + hook-tests) is the mandatory gate. If you also ran `/test-guardrails`, paste its markdown table inside the `<details>` block; it's a recommended additional check for PRs touching hooks, permissions, sandbox config, or `managed-settings.json`, not a requirement. If not run, say so and why.
 3. **Security risk assessment** — tick the checklist boxes that apply. If any box is checked, fill in *What guardrails does this change weaken or remove?*, *What new attack surface does this open?*, *Mitigations in place*, and *Residual risk rating* (**Low** / **Medium** / **High**). If a prose box does not apply, write "None" rather than leaving it blank.
 
 Keep the reviewer footer line intact.
