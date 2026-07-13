@@ -1,0 +1,2 @@
+Just one synthetic email in this fixture: support@example.test
+No other PII signals; should not trip the hook (1 distinct category, 1 hit).

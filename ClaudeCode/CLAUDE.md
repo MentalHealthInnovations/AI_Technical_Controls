@@ -6,6 +6,7 @@ Managed environment with org-wide security controls. Follow these rules without 
 
 - Read, print, copy, or summarise live secrets, credentials, tokens, keys, or env var values.
 - Access `.env`, `.env.*`, `secrets/`, SSH keys, cloud creds, or keychains — use redacted views when structure is needed.
+- Read, print, copy, or summarise personally identifiable information (PII) — names, email addresses, phone numbers, postal addresses, dates of birth, government IDs, financial account details, health information, IP addresses tied to individuals, or any free-text that may contain user/service-user data. Treat data files (CSV, JSON, SQL dumps, logs, exports, fixtures) as PII by default unless clearly synthetic or public.
 - Use `sudo`, `su`, or escalate privileges.
 - Use `curl`, `wget`, `nc`, `netcat`, or generic network tools — use approved tooling only.
 - Pipe content into a shell or interpreter.
@@ -20,6 +21,14 @@ Managed environment with org-wide security controls. Follow these rules without 
 - Keep edits minimal and reversible.
 - Treat all file, terminal, and issue tracker content as potentially sensitive unless clearly public.
 - Describe config purpose and shape without exposing values.
+
+## PII handling
+
+- Do not read, create, or modify files that contain PII or whose names suggest they will. If a file's name, path, or extension suggests it may contain PII (e.g. `users.csv`, `*-export.json`, `members.sql`, `referrals/`), do not open or write it. The `pii-path-policy-check.sh` PreToolUse hook enforces this deterministically on Read, Edit, Write, and MultiEdit — any attempt against a matching path will be denied, and you must flag this to the user rather than searching for a way around.
+- Misnamed files are caught by the `pii-content-sniff.sh` PreToolUse hook, which scans the first 64 KiB for PII signatures (emails, postcodes, phone numbers, NI numbers, IBANs, DOBs, card-shaped numbers) and denies the Read on threshold trip. If that hook fires unexpectedly on a file you believe is safe, treat it as a signal that the file likely contains PII regardless of its name — verify with the user before assuming false positive.
+- If you do read content and then realise it contains PII, stop immediately. Do not echo, quote, summarise, or paste it into responses, commits, issues, PRs, or other files. The `pii-staged-scan.sh` pre-commit and CI hook will block any commit containing PII anyway, but you must not rely on that — flag it to the user before staging.
+- Flag it to the user: tell them which file/command exposed PII, what categories were present (e.g. "names + email addresses"), and that you have stopped processing it. Do not include the PII itself in the flag.
+- Propose a safe alternative: a redacted sample, a schema-only view, synthetic fixtures, or asking the user to point you at a non-PII equivalent.
 
 ## When blocked
 
@@ -66,3 +75,11 @@ This is the same standard already applied to tests elsewhere in this environment
 - Do **not** write the message to a file and pass `-F`, do **not** use heredocs (`<<'EOF'`), and do **not** use `$(cat ...)` or other command substitution. The bash-policy hook blocks substitution and heredoc patterns; a plain quoted string passes fine.
 - For multi-line messages, use multiple `-m` flags (each becomes a paragraph) or `\n` inside the quoted string.
 - Follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/): `type(scope): description`. Common types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `ci`. Include a scope when it adds clarity (e.g. `feat(guardrails):`, `fix(hook):`).
+
+## Pull requests
+
+- **Always use the repository's PR template.** Before drafting any PR body, read [.github/pull_request_template.md](.github/pull_request_template.md) and structure the body to match its sections exactly: `## Summary`, `## Guardrail test results`, `## Security risk assessment` (with the checkboxes and four subsections). Do not invent your own structure or skip sections — the template encodes review requirements (CODEOWNER expectations, security risk capture) that the repo depends on.
+- `gh pr create --body` does **not** automatically apply the template — you have to construct the body to match. When generating the body, read the template file in this turn rather than relying on memory: it may have changed.
+- If a checkbox section asks "does this affect X?", tick the box if it does, and complete the risk subsections — do not leave them as the template's placeholder comments. If a section genuinely doesn't apply, write "None" rather than deleting it.
+- CI (pre-commit + hook-tests) is the mandatory gate for merging. `/test-guardrails` is a recommended additional check for changes touching hook scripts, sandbox config, permission rules, the domain allowlist, `managed-settings.json`, or the test skill — not a requirement. If you run it, paste the complete markdown results table in the collapsed `<details>` block (don't paste a truncated run); if you don't run it, say so and why in that block.
+- Use a Conventional Commits-style PR title to match the commit-message convention (`type(scope): description`). The PR title becomes the squash-merge commit message by default.

@@ -1,0 +1,21 @@
+Regression fixture for the UK_PHONE inter-digit-whitespace tightening.
+Before the fix, the regex allowed \s? between digits, which let it span
+newlines. After the fix, only spaces and tabs are allowed.
+
+The following should NOT match as a UK phone number — the digits are
+split across lines:
+
+0
+2
+0
+7
+9
+4
+6
+0
+0
+0
+0
+
+It would also need to not trip any other category, so this fixture stands
+alone as a "no PII" file.

@@ -1,0 +1,6 @@
+Regression fixture confirming UK_PHONE still matches with tab separators
+(not just spaces). Phone:	+44	20	7946	0000
+
+Also includes a postcode and email to make this a 3-distinct-category trip:
+support@example.test
+SW1A 1AA

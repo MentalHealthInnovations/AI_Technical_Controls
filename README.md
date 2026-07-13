@@ -12,19 +12,24 @@ A layered configuration system that makes Claude Code safer to use at scale. The
 | `ClaudeCode/control_mappings.csv` | Control mapping to ISO 42001 / NIST AI RMF |
 | `ClaudeCode/opt/claude/hooks/bash-policy-check.sh` | Pre-execution policy hook for Bash |
 | `ClaudeCode/opt/claude/hooks/webfetch-policy-check.sh` | Pre-execution policy hook for WebFetch |
+| `ClaudeCode/opt/claude/hooks/pii-path-policy-check.sh` | Pre-execution PII path/extension denylist for Read, Edit, Write, MultiEdit |
+| `ClaudeCode/opt/claude/hooks/pii-content-sniff.sh` | Pre-execution PII content scanner for Read, Edit, Write, MultiEdit (catches misnamed files and PII introduced via a write payload) |
+| `ClaudeCode/opt/claude/hooks/pii-patterns.sh` | Shared PII pattern definitions, sourced by the content sniffer and the pre-commit scanner |
 | `ClaudeCode/opt/claude/hooks/output-redact.sh` | Post-execution secret redaction for Bash/Read/WebFetch |
 | `ClaudeCode/opt/claude/hooks/tool-audit.sh` | Audit-only hook for Edit, Write, Task, SlashCommand, Read |
 | `ClaudeCode/opt/claude/hooks/prompt-submit.sh` | Audit-only hook for `UserPromptSubmit` (logs redacted prompt text) |
 | `ClaudeCode/opt/claude/hooks/session-audit.sh` | Audit-only hook for `SessionStart`, `Stop`, `SessionEnd` |
 | `ClaudeCode/opt/claude/hooks/lib/audit-log.sh` | Shared helper: appends a JSONL record per invocation |
 | `ClaudeCode/opt/claude/hooks/lib/redact.sh` | Shared secret-redaction patterns (output + prompt) |
+| `ClaudeCode/scripts/pii-staged-scan.sh` | Pre-commit / CI scanner that blocks commits containing PII |
 | `ClaudeCode/opt/claude/bin/upload-audit-logs.sh` | Daily uploader: ships the six hook logs to the audit S3 bucket (see appendix) |
 | `ClaudeCode/pull_claude_governance.sh` | Pulls and deploys policy files; self-updates each run |
 | `ClaudeCode/InstallClaudeGovernance.sh` | One-time macOS bootstrap for `pull_claude_governance.sh` |
 | [Appendix: AWS audit-log setup](#appendix-aws-audit-log-setup) | Phase 0 manual AWS setup for the audit-log S3 bucket + IAM (IaC later) |
 | `.claude/skills/test-guardrails/SKILL.md` | `/test-guardrails` verification suite |
-| `.github/workflows/ci.yml` | CI: runs `pre-commit run --all-files` on PRs and pushes to `main` |
+| `.github/workflows/ci.yml` | CI: runs `pre-commit run --all-files` (incl. the PII staged-scan) and the hook regression suites on PRs and pushes to `main` |
 | `.pre-commit-config.yaml` | Single source of truth for lint/format/validation checks (run by CI and optionally locally) |
+| `ClaudeCode/tests/` | Shell-based hook regression tests (see [tests/README.md](ClaudeCode/tests/README.md)) |
 
 ## Installation
 
@@ -81,6 +86,8 @@ Two roles: **policy** hooks make allow/deny decisions; **audit** hooks observe a
 |---|---|---|
 | `bash-policy-check.sh` | policy | `PreToolUse` / Bash |
 | `webfetch-policy-check.sh` | policy | `PreToolUse` / WebFetch |
+| `pii-path-policy-check.sh` | policy | `PreToolUse` / Read, Edit, Write, MultiEdit |
+| `pii-content-sniff.sh` | policy | `PreToolUse` / Read, Edit, Write, MultiEdit |
 | `output-redact.sh` | policy | `PostToolUse` / Bash, Read, WebFetch |
 | `tool-audit.sh` | audit | `PreToolUse` / Edit, Write, Task, SlashCommand, Read |
 | `prompt-submit.sh` | audit | `UserPromptSubmit` |
@@ -88,10 +95,27 @@ Two roles: **policy** hooks make allow/deny decisions; **audit** hooks observe a
 
 - **`bash-policy-check.sh`** — enforces policy beyond glob matching; catches obfuscation and compound expressions that would bypass simple deny patterns.
 - **`webfetch-policy-check.sh`** — enforces the domain allowlist.
+- **`pii-path-policy-check.sh`** — deterministic denylist for file paths that suggest PII content: data exports (`*-export.csv`, `members.xlsx`), record dumps (`users.sql`, `customers.json`), and files inside data folders (`referrals/`, `exports/`, `dumps/`, `pii/`, `dsar/`). Matched case-insensitively against the basename and any parent directory segment. Fires on any tool whose `tool_input` carries a `file_path` (Read, Edit, Write, MultiEdit), so the agent cannot create a PII-named file via Write/Edit either — see [CLAUDE.md](ClaudeCode/CLAUDE.md) for the agent-behaviour layer that handles content discovered after a read.
+- **`pii-content-sniff.sh`** — content-level fallback for misnamed files. On Read, scans the first 64 KiB of the on-disk file; on Write/Edit/MultiEdit, scans the inline `content`/`new_string`/`edits[].new_string` payload being written (there is nothing on disk yet for those tools). Scans for emails, UK postcodes, UK phone numbers, UK National Insurance numbers, IBANs, dates of birth, and grouped 16-digit card-shaped sequences. Denies the operation when at least 3 distinct categories appear or any single high-confidence pattern hits 10+ times. On Read, known binary extensions (xlsx, sqlite, png, etc.) with a NUL byte in the first KiB are skipped — the path-policy hook owns those by name; a NUL byte alone (with no binary extension) does not trigger the skip, so a text file cannot dodge scanning by prepending a NUL. Patterns, thresholds, and the counting logic are shared with `pii-staged-scan.sh` via `pii-patterns.sh`.
 - **`output-redact.sh`** — scans tool output for secrets. On match, the result is blocked before entering Claude's context. The UI transcript may still show the raw output, but Claude cannot read or act on it. Patterns (defined in `lib/redact.sh`): PEM blocks, AWS keys, GitHub PATs (classic and fine-grained), `sk-` keys, Slack tokens, JWTs, Bearer headers, generic `key=value` / `password=value` assignments, connection strings, and Stripe/Twilio/SendGrid keys.
 - **`tool-audit.sh`** — pure observer. Logs file paths and sizes for Edit/Write, subagent type and prompt length for Task, the command string for SlashCommand, and file path / offset / limit for Read. Never blocks.
 - **`prompt-submit.sh`** — captures every prompt the user submits. The prompt text is passed through the same redaction patterns as tool output, so credentials pasted into prompts are stripped before they reach the audit log. The list of patterns that fired is recorded so an analyst can see *that* a secret was present without storing it.
 - **`session-audit.sh`** — records session start (with source: `startup` / `resume` / `clear` / `compact`), `Stop` events, and `SessionEnd` reasons. Lets you reconstruct a per-session timeline by filtering the JSONL trail on `session_id`.
+
+### Commit-time PII scanning
+
+`ClaudeCode/scripts/pii-staged-scan.sh` runs at `git commit` time (via `.pre-commit-config.yaml`) and on every PR (via the `pre-commit` job in [.github/workflows/ci.yml](.github/workflows/ci.yml), which runs `pre-commit run --all-files`). It scans each file using the same pattern set as the runtime sniffer (sourced from [pii-patterns.sh](ClaudeCode/opt/claude/hooks/pii-patterns.sh)), and fails the commit/CI run if any file trips the 3-distinct-category or 10-density threshold.
+
+This layer protects against PII that the runtime hooks can't see — content pasted into a file by a human, generated by Claude from memory, or staged from an unrelated working directory. It is independent of the agent: the scanner will refuse the commit regardless of how the content got there.
+
+To enable locally:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+`pre-commit install` cannot be run by Claude — the bash-policy hook blocks it. Enabling pre-commit is an explicit human action.
 
 ## Audit logs
 
@@ -101,6 +125,8 @@ Every hook writes one structured JSON Lines record per invocation to `~/.claude/
 |---|---|
 | `bash-policy-check.sh` | `~/.claude/debug/bash-policy.jsonl` |
 | `webfetch-policy-check.sh` | `~/.claude/debug/webfetch-policy.jsonl` |
+| `pii-path-policy-check.sh` | `~/.claude/debug/pii-path-policy.jsonl` |
+| `pii-content-sniff.sh` | `~/.claude/debug/pii-content-sniff.jsonl` |
 | `output-redact.sh` | `~/.claude/debug/output-redact.jsonl` |
 | `tool-audit.sh` | `~/.claude/debug/tool-audit.jsonl` |
 | `prompt-submit.sh` | `~/.claude/debug/prompt-submit.jsonl` |
@@ -148,6 +174,8 @@ Manually:
 ```bash
 : > ~/.claude/debug/bash-policy.jsonl
 : > ~/.claude/debug/webfetch-policy.jsonl
+: > ~/.claude/debug/pii-path-policy.jsonl
+: > ~/.claude/debug/pii-content-sniff.jsonl
 : > ~/.claude/debug/output-redact.jsonl
 : > ~/.claude/debug/tool-audit.jsonl
 : > ~/.claude/debug/prompt-submit.jsonl
@@ -158,12 +186,14 @@ For automated rotation, drop a `newsyslog` config into `/etc/newsyslog.d/`. Beca
 
 ```
 # /etc/newsyslog.d/claude-hooks-alice.conf
-/Users/alice/.claude/debug/bash-policy.jsonl     alice:staff  640  7  -1  $D0  ZN
-/Users/alice/.claude/debug/webfetch-policy.jsonl alice:staff  640  7  -1  $D0  ZN
-/Users/alice/.claude/debug/output-redact.jsonl   alice:staff  640  7  -1  $D0  ZN
-/Users/alice/.claude/debug/tool-audit.jsonl      alice:staff  640  7  -1  $D0  ZN
-/Users/alice/.claude/debug/prompt-submit.jsonl   alice:staff  640  7  -1  $D0  ZN
-/Users/alice/.claude/debug/session-audit.jsonl   alice:staff  640  7  -1  $D0  ZN
+/Users/alice/.claude/debug/bash-policy.jsonl      alice:staff  640  7  -1  $D0  ZN
+/Users/alice/.claude/debug/webfetch-policy.jsonl  alice:staff  640  7  -1  $D0  ZN
+/Users/alice/.claude/debug/pii-path-policy.jsonl  alice:staff  640  7  -1  $D0  ZN
+/Users/alice/.claude/debug/pii-content-sniff.jsonl alice:staff 640  7  -1  $D0  ZN
+/Users/alice/.claude/debug/output-redact.jsonl    alice:staff  640  7  -1  $D0  ZN
+/Users/alice/.claude/debug/tool-audit.jsonl       alice:staff  640  7  -1  $D0  ZN
+/Users/alice/.claude/debug/prompt-submit.jsonl    alice:staff  640  7  -1  $D0  ZN
+/Users/alice/.claude/debug/session-audit.jsonl    alice:staff  640  7  -1  $D0  ZN
 ```
 
 Daily rotation, 7 compressed archives, no daemon signal. See `man 5 newsyslog.conf`.
@@ -308,6 +338,9 @@ Engineers may improve convenience inside the rails; they do not control the rail
 | Restrict a WebFetch domain to a path prefix | `managed-settings.json` (`network._webfetchPathScopes` — WebFetch-only; the OS sandbox and Bash egress still reach any path on the host) |
 | Allow a currently-blocked Bash command | `bash-policy-check.sh` |
 | New/updated secret-detection pattern | `opt/claude/hooks/lib/redact.sh` |
+| New/updated PII path or directory pattern | `pii-path-policy-check.sh` |
+| New/updated PII content detector or threshold tweak | `pii-patterns.sh` (shared by sniffer and pre-commit scanner) |
+| Pre-commit/CI scanner change (exclude prefixes, thresholds) | `pii-staged-scan.sh` |
 | New MCP server | `managed-settings.json` |
 | Behavioural guidance change | `CLAUDE.md` |
 | Team-wide repo allow rule | `.claude/settings.json` in that repo (not here) |
@@ -334,6 +367,7 @@ If declined and you disagree, escalate via your line manager to head of IT or se
 | `curl` / `wget` | Exfiltration vector | Use `WebFetch` (domain-allowlisted) |
 | `sudo` | Privilege escalation | Run privileged operations outside Claude Code |
 | Read `.env` | Credential exposure | Pass values via env vars, not files |
+| Read `users.csv`, `members-export.xlsx`, `referrals/*` | PII exposure | Use a redacted sample, schema-only view, or synthetic fixture |
 | Arbitrary domains | Egress control | Submit a domain addition |
 | `git --force` | Destructive | Use non-destructive git workflows |
 
@@ -350,7 +384,7 @@ What CI covers:
 | YAML validity | `check-yaml` | broken workflow / config YAML |
 | Hygiene | `end-of-file-fixer`, `trailing-whitespace`, `mixed-line-ending`, `check-merge-conflict`, `check-added-large-files`, shebang checks | stray bytes, unresolved conflicts, accidental large files |
 
-> **CI does not verify guardrail *behaviour*.** It checks that scripts parse and configs are valid, not that a given command is still blocked. The `/test-guardrails` suite is the behaviour regression net; a full run is required in the PR description for changes to hooks, permissions, sandbox config, or `managed-settings.json` (see the PR template).
+> **CI does not verify guardrail *behaviour*.** It checks that scripts parse and configs are valid, not that a given command is still blocked. CI (pre-commit + hook-tests) is nonetheless the mandatory merge gate. The `/test-guardrails` suite is a recommended additional behaviour check for changes to hooks, permissions, sandbox config, or `managed-settings.json` — not a requirement (see the PR template).
 
 `.pre-commit-config.yaml` is in the sandbox write-deny list by design, so Claude Code cannot edit it — the same control that protects `.git/hooks` and `.husky`. Maintainers edit it by hand.
 

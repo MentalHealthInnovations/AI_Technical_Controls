@@ -1,0 +1,2 @@
+Only an IBAN here: GB29NWBK60161331926819
+One distinct category - should not trip.

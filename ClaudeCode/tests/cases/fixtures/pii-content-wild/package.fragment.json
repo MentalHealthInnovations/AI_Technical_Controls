@@ -1,0 +1,28 @@
+{
+  "name": "example-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Example monorepo fixture for false-positive corpus testing",
+  "engines": {
+    "node": ">=18"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "typecheck": "pnpm -r --filter='!@example/app' exec tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "pnpm -r --filter='!@example/app' test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^20.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "^5.4.0",
+    "typescript-eslint": "^8.0.0",
+    "vite": "^6.0.0",
+    "vitest": "^4.0.0"
+  }
+}

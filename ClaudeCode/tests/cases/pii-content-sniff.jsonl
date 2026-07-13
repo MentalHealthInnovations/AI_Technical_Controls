@@ -1,0 +1,27 @@
+{"name": "three distinct categories (email+postcode+phone) trips distinct", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/three_categories.txt"}, "expect": "deny"}
+{"name": "three distinct categories (NI+postcode+phone) trips distinct", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/ni_postcode_phone.txt"}, "expect": "deny"}
+{"name": "three categories mixing low-confidence (email+DOB+card) trips distinct", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/email_dob_card.txt"}, "expect": "deny"}
+{"name": "11 emails trips density", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/many_emails.txt"}, "expect": "deny"}
+{"name": "one email - no trip", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/one_email_only.txt"}, "expect": "unset"}
+{"name": "two high-confidence categories - below distinct trip", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/two_categories.txt"}, "expect": "unset"}
+{"name": "one IBAN only - no trip", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/iban_only.txt"}, "expect": "unset"}
+{"name": "two low-confidence categories (DOB+card) - no trip", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/dob_card.txt"}, "expect": "unset"}
+{"name": "clean Go source - no trip", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/clean_code.go"}, "expect": "unset"}
+{"name": "binary file - skipped by NUL-byte detector", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/binary.bin"}, "expect": "unset"}
+{"name": "nonexistent file - exit 0 (Read will fail naturally)", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/does-not-exist.txt"}, "expect": "unset"}
+{"name": "empty file_path", "input": {"file_path": ""}, "expect": "unset"}
+{"name": "phone digits split across lines - no trip after \\s tightening", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/cross_line_phone.txt"}, "expect": "unset"}
+{"name": "hex hash 10-digit runs - no trip after intra-word boundary fix", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/hex_hash_digits.txt"}, "expect": "unset"}
+{"name": "tab-separated phone still matches (positive control after tightening)", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/phone_with_tab.txt"}, "expect": "deny"}
+{"name": "regression (NUL bypass fixed): text file with leading NUL + 3 PII categories denies", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/nul_prefixed_pii.txt"}, "expect": "deny"}
+{"name": "regression (undercount fixed): 18 space-separated postcodes trip density", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/packed_postcodes.txt"}, "expect": "deny"}
+{"name": "regression (spaced IBAN fixed): 12 spaced IBANs trip density", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/spaced_ibans.txt"}, "expect": "deny"}
+{"name": "regression (self-deny fixed): reading run_staged_scan_cases.sh itself is allowed", "input": {"file_path": "ClaudeCode/tests/run_staged_scan_cases.sh"}, "expect": "unset"}
+{"name": "regression (case-insensitive detection): lowercase postcode+NI+phone trips distinct", "input": {"file_path": "ClaudeCode/tests/cases/fixtures/pii-content/lowercase_pii.txt"}, "expect": "deny"}
+{"name": "Write payload with 3 PII categories under innocuous filename denies", "tool_name": "Write", "input": {"file_path": "tmp/notes.md", "content": "Email: alex.fake@example.test\nPostcode: SW1A 1AA\nPhone: +44 20 7946 0000\n"}, "expect": "deny"}
+{"name": "Write payload with no PII content is allowed", "tool_name": "Write", "input": {"file_path": "tmp/draft.md", "content": "Just some ordinary prose with no personal data."}, "expect": "unset"}
+{"name": "Edit new_string with 3 PII categories denies", "tool_name": "Edit", "input": {"file_path": "tmp/scratch.md", "old_string": "placeholder", "new_string": "Email: alex.fake@example.test\nPostcode: SW1A 1AA\nPhone: +44 20 7946 0000\n"}, "expect": "deny"}
+{"name": "Edit new_string with no PII content is allowed", "tool_name": "Edit", "input": {"file_path": "tmp/scratch.md", "old_string": "placeholder", "new_string": "ordinary replacement text"}, "expect": "unset"}
+{"name": "MultiEdit edits[].new_string combined introduce 3 PII categories denies", "tool_name": "MultiEdit", "input": {"file_path": "tmp/memo.md", "edits": [{"old_string": "a", "new_string": "Email: alex.fake@example.test\nPostcode: SW1A 1AA"}, {"old_string": "b", "new_string": "Phone: +44 20 7946 0000"}]}, "expect": "deny"}
+{"name": "MultiEdit old_string PII is not scanned (only new_string)", "tool_name": "MultiEdit", "input": {"file_path": "tmp/memo.md", "edits": [{"old_string": "Email: alex.fake@example.test\nPostcode: SW1A 1AA\nPhone: +44 20 7946 0000", "new_string": "redacted"}]}, "expect": "unset"}
+{"name": "Write-shaped payload without tool_name falls through to Read branch (nonexistent path, no trip)", "input": {"file_path": "tmp/notes.md", "content": "Email: alex.fake@example.test\nPostcode: SW1A 1AA\nPhone: +44 20 7946 0000\n"}, "expect": "unset"}
