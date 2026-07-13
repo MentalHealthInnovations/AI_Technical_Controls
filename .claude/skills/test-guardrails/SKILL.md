@@ -211,7 +211,7 @@ The same hook also enforces a **Jira project allowlist** (`ATLASSIAN_PROJECTS` i
 > **What to pass as args.** For tests 76–77 (`search`/`fetch`, not on the allowlist at all) any schema-valid minimal args are fine — the hook denies before the args matter. Tests 69 and 71–75 (write tools) need the specific non-allowlisted-project args given per test below, since the hook now only denies them on project scope, not on the base allowlist. For ALLOWED (read) tools, establish real values first so each call returns data instead of an Atlassian 404/400, then reuse them across tests 80–87:
 >
 > 1. `getAccessibleAtlassianResources` (no args) → the `cloudId` (the `id` field).
-> 2. `getVisibleJiraProjects` with that `cloudId` → pick a project key that is **on the `ATLASSIAN_PROJECTS` allowlist** (one of `PLAN`, `DENGS`, `DATA`, `MJB`), and one of its `issueTypeId`s from `expandIssueTypes`. A non-allowlisted key would be denied by the project-scope layer, failing the ALLOWED expectation.
+> 2. `getVisibleJiraProjects` with that `cloudId` → pick a project key that is **on the `ATLASSIAN_PROJECTS` allowlist** (one of `PLAN`, `DENGS`, `DATA`, `MJB`, `DE`, `DSD`), and one of its `issueTypeId`s from `expandIssueTypes`. A non-allowlisted key would be denied by the project-scope layer, failing the ALLOWED expectation.
 > 3. `searchJiraIssuesUsingJql` with that `cloudId` and a **bounded** JQL naming an allowlisted project, e.g. `project = PLAN ORDER BY created DESC`, `maxResults: 1` → a real `issueIdOrKey` from an allowlisted project.
 >
 > Substitute those into the per-tool calls below. A bare `ORDER BY created DESC` is rejected by Jira as an unbounded query, and placeholder keys like `TEST-1` / `TEST` return "issue does not exist" or "you cannot create issues in this project". Such Atlassian-side errors still count as a hook PASS (PASS = passed the hook), but using real values from an allowlisted project keeps the run clean and confirms the read path end to end rather than stopping at the project-scope layer or a Jira validation error.
@@ -246,7 +246,7 @@ Allowed — on the allowlist, must pass the hook (all read-only):
 
 ### EXPECT: project-scoped (`mcp-policy-check.sh` Jira project allowlist)
 
-**Tests 88–100** verify the `ATLASSIAN_PROJECTS` project allowlist in `mcp-policy-check.sh`. The current allowlist is `PLAN DENGS DATA MJB`; `VST` and `ONB` are deliberately **not** on it. A read that names an allowlisted project passes the hook; a read that names any other project is denied (`project_not_in_allowlist`) before it reaches Atlassian. Keys are compared case-insensitively.
+**Tests 88–100** verify the `ATLASSIAN_PROJECTS` project allowlist in `mcp-policy-check.sh`. The current allowlist is `PLAN DENGS DATA MJB DE DSD`; `VST` and `ONB` are deliberately **not** on it. A read that names an allowlisted project passes the hook; a read that names any other project is denied (`project_not_in_allowlist`) before it reaches Atlassian. Keys are compared case-insensitively.
 
 Test 88 is a **static wiring check** (always runnable, no live connection). Tests 89–100 are **behavioural** and need the `atlassian` server **connected**; if it is disconnected, record them as `Not run — atlassian MCP not connected`. Run the **BLOCKED** cases (89–95) **sequentially, one at a time**; the **ALLOWED** cases (96–100) may be **batched**.
 

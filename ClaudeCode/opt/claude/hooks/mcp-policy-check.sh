@@ -51,7 +51,7 @@ is_allowed() {
 # getIssueLinkTypes, and the two shared tools getAccessibleAtlassianResources /
 # atlassianUserInfo) are not bound by this list — a project allowlist cannot
 # express "list only these projects".
-ATLASSIAN_PROJECTS="PLAN DENGS DATA MJB"
+ATLASSIAN_PROJECTS="PLAN DENGS DATA MJB DE DSD"
 
 # project_allowed <key> — true iff <key> (any case) is an alphanumeric Jira key
 # present in ATLASSIAN_PROJECTS. Numeric ids fail the key shape and are denied,
