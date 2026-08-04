@@ -148,6 +148,29 @@ if printf '%s' "$cmd" | grep -Eqi '^tfsec\b.*\s--update\b'; then
   emit_deny "tfsec_update" "tfsec --update blocked by policy"
 fi
 
+# gh's config dir (~/.config/gh) is readable by the OS sandbox so the gh binary
+# can authenticate (see _comment_ghConfig in managed-settings.json). gh itself
+# never takes its config path as an argument, so any command text naming that
+# path is an attempt to read the OAuth token with an allowlisted text tool
+# (cat/grep/sed/...). Checked against the raw command so quoted paths are
+# caught too. Glob-evasion variants that dodge this literal match are still
+# covered by output-redact.sh (GITHUB_PAT pattern in lib/redact.sh).
+if printf '%s' "$cmd" | grep -Eqi '\.config/gh(/|[[:space:]]|$)|gh/hosts\.ya?ml'; then
+  emit_deny "gh_config_path" "Direct access to gh config/auth files blocked by policy"
+fi
+
+# gh subcommands that exfiltrate data off-repo in one command (gist create,
+# release asset upload), mutate or create remote repos, or bypass branch
+# protection (--admin merge). Blocked ahead of the allowlist so the broad
+# "^gh\s+(issue|pr|repo|gist|label|release)" entry below can't launder them.
+# Plain `gh pr merge` stays allowed: unapproved merges are rejected server-side
+# by branch protection, which is the intended control locus for push-to-main.
+# gh auth/api/secret/etc. are denied by the default-deny allowlist as before —
+# notably `gh auth token`, which prints the live credential.
+if printf '%s' "$cmd" | grep -Eqi '^gh\s+(gist\s+(create|edit)|repo\s+(delete|archive|rename|edit|create|fork)|release\s+(create|upload|delete|edit)|pr\s+merge\b.*--admin)'; then
+  emit_deny "gh_subcommand" "gh gist create/repo delete/release upload/admin merge blocked by policy"
+fi
+
 # Array of allowed command patterns (regex format)
 # Safe git commands: read-only, safe modifications, but blocks dangerous operations
 allowed_patterns=(
