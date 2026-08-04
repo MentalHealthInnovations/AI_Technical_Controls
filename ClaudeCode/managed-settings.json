@@ -42,7 +42,7 @@
       "Read(~/.terraform.d/**)",
       "Read(~/.terraformrc)",
       "Read(~/.vault-token)",
-      "Read(~/.config/gh/hosts.yml)",
+      "Read(~/.config/gh/**)",
       "Read(~/.pypirc)",
       "Read(~/.gem/credentials)",
       "Read(~/.cargo/credentials)",
@@ -159,6 +159,7 @@
         "./.git/packed-refs",
         "./.git/packed-refs.lock"
       ],
+      "_comment_ghConfig": "~/.config/gh is deliberately absent from denyRead: the gh binary must read its own config.yml/hosts.yml to authenticate when run under sandboxed Bash. Claude-level access to those files remains blocked by the Read(~/.config/gh/**) permission deny above and by the gh_config_path pre-block in bash-policy-check.sh — do not re-add it here without revisiting both.",
       "denyRead": [
         "~/.ssh",
         "~/.aws",
@@ -173,7 +174,6 @@
         "~/.terraformrc",
         "~/.vault-token",
         "~/Library/Keychains",
-        "~/.config/gh",
         "~/.pypirc",
         "~/.gem",
         "~/.cargo/credentials",
