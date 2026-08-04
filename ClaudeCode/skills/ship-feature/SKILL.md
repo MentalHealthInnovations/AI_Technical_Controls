@@ -1,5 +1,6 @@
 ---
 name: ship-feature
+disable-model-invocation: true
 description: One-shot feature delivery. Given a task description and its boundaries, sync main, branch off it, implement with frequent small conventional commits, push, test the change against the installed policy (running /test-guardrails for enforced-config changes), and open a PR with gh. Use when the user hands off a self-contained feature/fix to take from a clean main all the way to an open PR. Any command the agent cannot run — including the privileged install needed to test enforced-policy changes — is handed back to the user to run.
 ---
 
