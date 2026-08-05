@@ -17,8 +17,9 @@ audit_init "mcp-policy"
 # segment to its server's list. Jira write tools (createJiraIssue, editJiraIssue,
 # transitionJiraIssue, addCommentToJiraIssue, addWorklogToJiraIssue, createIssueLink) are
 # allowed here but bound to ATLASSIAN_PROJECTS by project_scope_ok below, so a write
-# outside the allowlisted projects is still denied. Other state-changing tools stay
-# omitted, which denies them before the call reaches the server.
+# outside the allowlisted projects is still denied. searchConfluenceUsingCql is likewise
+# allowed here but bound to CONFLUENCE_SPACES by project_scope_ok below. Other
+# state-changing tools stay omitted, which denies them before the call reaches the server.
 is_allowed() {
   local server="$1" tool="$2" allowed="" t
   case "$server" in
@@ -29,7 +30,8 @@ is_allowed() {
                getTransitionsForJiraIssue getVisibleJiraProjects \
                lookupJiraAccountId searchJiraIssuesUsingJql \
                createJiraIssue editJiraIssue transitionJiraIssue \
-               addCommentToJiraIssue addWorklogToJiraIssue createIssueLink"
+               addCommentToJiraIssue addWorklogToJiraIssue createIssueLink \
+               getConfluenceSpaces searchConfluenceUsingCql"
       ;;
     *)
       return 1
@@ -61,6 +63,39 @@ project_allowed() {
   want="$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"
   [[ "$want" =~ ^[A-Z][A-Z0-9_]*$ ]] || return 1
   for p in $ATLASSIAN_PROJECTS; do
+    [[ "$(printf '%s' "$p" | tr '[:lower:]' '[:upper:]')" == "$want" ]] && return 0
+  done
+  return 1
+}
+
+# --- Confluence space allowlist ----------------------------------------------
+# searchConfluenceUsingCql is scoped to these space keys, the same way Jira reads
+# are scoped to ATLASSIAN_PROJECTS above. Keys are compared case-insensitively.
+# EDIT THIS LIST to change which Confluence spaces Claude Code may search.
+#
+# This list does NOT bound page-content reads. getConfluencePage,
+# getConfluencePageDescendants, getConfluencePageFooterComments,
+# getConfluencePageInlineComments, and getConfluenceCommentChildren all key off an
+# opaque page/comment id with no space named in the request, so this PreToolUse hook
+# — which only ever sees the request, never the API response — cannot verify which
+# space that id belongs to. getPagesInConfluenceSpace has the same problem in the
+# other direction: Confluence's v2 "get pages in space" endpoint takes a numeric
+# space id, not the human-readable key on this list, and the hook cannot resolve a
+# numeric id to a key without calling Atlassian (the same failure mode
+# project_allowed already documents for a bare numeric Jira project id). All six of
+# those tools are therefore left off the allowlist entirely rather than scoped —
+# adding a key here does not grant them access. getConfluenceSpaces is the one
+# exception: it takes no space parameter at all (a cross-space listing tool, like
+# getVisibleJiraProjects), so it is allowed unscoped rather than bound to this list.
+CONFLUENCE_SPACES="JD"
+
+# space_allowed <key> — true iff <key> (any case) is an alphanumeric Confluence
+# space key present in CONFLUENCE_SPACES. Mirrors project_allowed.
+space_allowed() {
+  local want p
+  want="$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"
+  [[ "$want" =~ ^[A-Z][A-Z0-9_]*$ ]] || return 1
+  for p in $CONFLUENCE_SPACES; do
     [[ "$(printf '%s' "$p" | tr '[:lower:]' '[:upper:]')" == "$want" ]] && return 0
   done
   return 1
@@ -113,9 +148,44 @@ jql_scope_ok() {
   [[ "$found" -eq 1 ]]
 }
 
-# project_scope_ok <server> <tool> <payload> — true unless the call names a
-# Jira project/issue outside ATLASSIAN_PROJECTS. Only the atlassian server is
-# project-scoped; tools that take no project key are unaffected.
+# cql_scope_ok <cql> — true iff the CQL is bounded to allowlisted Confluence
+# spaces. Mirrors jql_scope_ok: accepts an AND-only query (no OR, no NOT) that
+# carries a `space = KEY` or `space in (KEY, ...)` clause naming only allowlisted
+# keys. Everything else (OR/NOT, space negation, no space clause, anything
+# unparseable) is denied, for the same reasons jql_scope_ok gives.
+cql_scope_ok() {
+  local cql="$1" inside k found=0
+  [[ -n "$cql" ]] || return 1
+  printf '%s' "$cql" | grep -iqwE 'or|not' && return 1
+  printf '%s' "$cql" | grep -iqE 'space[[:space:]]*(!=|<|>)' && return 1
+
+  # space = KEY
+  while IFS= read -r k; do
+    k="${k#\"}"; k="${k%\"}"
+    space_allowed "$k" || return 1
+    found=1
+  done < <(printf '%s' "$cql" \
+             | grep -oiE 'space[[:space:]]*=[[:space:]]*"?[A-Za-z0-9_]+"?' \
+             | sed -E 's/.*=[[:space:]]*//')
+
+  # space in (KEY, KEY, ...)
+  while IFS= read -r inside; do
+    inside="${inside#*\(}"; inside="${inside%\)}"
+    inside="${inside//,/ }"
+    for k in $inside; do
+      k="${k#\"}"; k="${k%\"}"
+      space_allowed "$k" || return 1
+      found=1
+    done
+  done < <(printf '%s' "$cql" | grep -oiE 'space[[:space:]]+in[[:space:]]*\([^)]*\)')
+
+  [[ "$found" -eq 1 ]]
+}
+
+# project_scope_ok <server> <tool> <payload> — true unless the call names a Jira
+# project/issue outside ATLASSIAN_PROJECTS, or a searchConfluenceUsingCql query
+# outside CONFLUENCE_SPACES. Only the atlassian server is scoped this way; tools
+# that take no project/space key are unaffected.
 project_scope_ok() {
   local server="$1" tool="$2" pl="$3" v proj in_v out_v in_proj out_proj
   [[ "$server" == atlassian ]] || return 0
@@ -147,6 +217,10 @@ project_scope_ok() {
     searchJiraIssuesUsingJql)
       v="$(printf '%s' "$pl" | jq -r '.tool_input.jql // empty')"
       jql_scope_ok "$v"
+      ;;
+    searchConfluenceUsingCql)
+      v="$(printf '%s' "$pl" | jq -r '.tool_input.cql // empty')"
+      cql_scope_ok "$v"
       ;;
     *)
       return 0
@@ -185,7 +259,14 @@ fi
 if is_allowed "$server" "$tool"; then
   # Tool is permitted; now scope project-bearing reads to ATLASSIAN_PROJECTS.
   if ! project_scope_ok "$server" "$tool" "$payload"; then
-    emit_deny "project_not_in_allowlist" "Jira project not in the policy allowlist for this server"
+    case "$tool" in
+      searchConfluenceUsingCql)
+        emit_deny "space_not_in_allowlist" "Confluence space not in the policy allowlist for this server"
+        ;;
+      *)
+        emit_deny "project_not_in_allowlist" "Jira project not in the policy allowlist for this server"
+        ;;
+    esac
   fi
   audit_emit "$payload" allow tool_name "$tool_name" server "$server" tool "$tool"
   echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}'
