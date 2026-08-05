@@ -171,6 +171,16 @@ if printf '%s' "$cmd" | grep -Eqi '^gh\s+(gist\s+(create|edit)|repo\s+(delete|ar
   emit_deny "gh_subcommand" "gh gist create/repo delete/release upload/admin merge blocked by policy"
 fi
 
+# gh's credential surface. These are already outside the allowlist (default-deny),
+# but the final-segment loop bug fixed below showed how a subtle parsing defect can
+# silently disable the allowlist, so the commands that print or manage the live
+# credential get an explicit deny with their own audit reason: `gh auth token`
+# prints the OAuth token; `gh api` is arbitrary authenticated API access; the rest
+# manage secrets and keys.
+if printf '%s' "$cmd" | grep -Eqi '^gh\s+(auth|api|secret|ssh-key|gpg-key|codespace)\b'; then
+  emit_deny "gh_credential_surface" "gh auth/api/secret/key subcommands blocked by policy"
+fi
+
 # Array of allowed command patterns (regex format)
 # Safe git commands: read-only, safe modifications, but blocks dangerous operations
 allowed_patterns=(
@@ -309,6 +319,12 @@ segment_allowed() {
 # Split the quote-stripped command so that operators inside quotes (e.g. a grep regex
 # `"a\|b\|c"`) are not treated as segment boundaries. The allowlist only needs to see
 # each segment's leading verb, which lives outside any quoted argument.
+#
+# printf '%s\n' (NOT '%s'): the trailing newline is load-bearing. `read` returns
+# non-zero on an unterminated final line, so with '%s' the while loop never ran
+# for the LAST segment — meaning any single command with no chain operators
+# bypassed the allowlist entirely (verified 2026-08-05: `basename /tmp/x` was
+# allowed while `basename /tmp/x && ls` was denied on its first segment).
 while IFS= read -r segment; do
   if ! segment_allowed "$segment"; then
     audit_emit "$payload" deny \
@@ -318,7 +334,7 @@ while IFS= read -r segment; do
     echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Command not in policy allowlist"}}'
     exit 0
   fi
-done < <(printf '%s' "$stripped_cmd" | sed 's/&&/\n/g; s/||/\n/g; s/;/\n/g; s/|/\n/g')
+done < <(printf '%s\n' "$stripped_cmd" | sed 's/&&/\n/g; s/||/\n/g; s/;/\n/g; s/|/\n/g')
 
 audit_emit "$payload" allow cmd "$cmd" segs:json "${separators:-0}"
 echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}'
