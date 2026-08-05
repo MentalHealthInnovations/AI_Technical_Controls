@@ -2,7 +2,7 @@
   "allowedChannelPlugins": [],
   "allowedHttpHookUrls": [],
   "_comment_allowedMcpServers": "Controls which MCP servers may CONNECT. Which of a connected server's TOOLS may run is a separate, default-deny allowlist that lives in /opt/claude/hooks/mcp-policy-check.sh (see its `is_allowed` function), not here: that hook is the sole consumer of the tool allowlist, so it is kept inline there rather than split across two files.",
-  "allowedMcpServers": [{"serverName": "atlassian"}],
+  "allowedMcpServers": [{"serverName": "atlassian"}, {"serverName": "github"}],
   "allowManagedHooksOnly": true,
   "allowManagedMcpServersOnly": true,
   "allowManagedPermissionRulesOnly": true,
@@ -12,7 +12,7 @@
   "disableAutoMode": "disable",
   "disableDeepLinkRegistration": "disable",
   "disableSkillShellExecution": true,
-  "enabledMcpjsonServers": [],
+  "enabledMcpjsonServers": ["github"],
   "feedbackSurveyRate": 0,
   "forceLoginMethod": "claudeai",
   "forceRemoteSettingsRefresh": true,
@@ -241,7 +241,9 @@
         "mcp.atlassian.com",
         "support.atlassian.com",
         "developer.atlassian.com",
-        "community.atlassian.com"
+        "community.atlassian.com",
+        "modelcontextprotocol.io",
+        "api.githubcopilot.com"
       ],
       "_comment_webfetchPathScopes": "WebFetch-only path tightening, read solely by webfetch-policy-check.sh. Each key is a host that also appears in allowedDomains; its value is a path prefix that WebFetch URLs to that host must fall under (exact match or a '/'-bounded child). Hosts not listed here are unrestricted. This does NOT constrain Bash network egress — the OS sandbox sees host only and allows every path — so treat it as a WebFetch convenience/blast-radius control, not a hard boundary.",
       "_webfetchPathScopes": {

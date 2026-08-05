@@ -174,6 +174,23 @@ fi
 echo "Installing pull script..."
 sudo cp "$ai_governance_repo_dir/ClaudeCode/pull_claude_governance.sh" "$script_dest"
 sudo chmod +x "$script_dest"
+
+# Deploy policy files directly from the cloned ref. We do NOT invoke
+# pull_claude_governance.sh here because that script unconditionally clones main,
+# which would overwrite the just-deployed ref. The pull script is still installed
+# above so the daily cron and update_ai_governance wrapper work as designed —
+# both will pull main on their next run, which is the intended kill-switch when
+# a test branch is bad.
+claude_config_dir="/Library/Application Support/ClaudeCode/"
+claude_hooks_dir="/opt/claude/hooks/"
+echo "Deploying policy files from ref '$GOVERNANCE_GIT_REF'..."
+sudo mkdir -p "$claude_config_dir" "$claude_hooks_dir"
+sudo cp "$ai_governance_repo_dir/ClaudeCode/managed-settings.json" "$claude_config_dir"
+sudo cp "$ai_governance_repo_dir/ClaudeCode/managed-mcp.json" "$claude_config_dir"
+sudo cp "$ai_governance_repo_dir/ClaudeCode/CLAUDE.md" "$claude_config_dir"
+sudo cp "$ai_governance_repo_dir"/ClaudeCode/opt/claude/hooks/* "$claude_hooks_dir"
+deployed_sha="$(git -C "$ai_governance_repo_dir" rev-parse HEAD)"
+echo "$deployed_sha" | sudo tee "$claude_config_dir/VERSION" >/dev/null
 rm -rf "$ai_governance_repo_dir"
 
 echo "Created script to pull governance files."
