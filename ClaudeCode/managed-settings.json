@@ -13,12 +13,6 @@
   "disableDeepLinkRegistration": "disable",
   "disableSkillShellExecution": true,
   "enabledMcpjsonServers": ["github"],
-  "mcpServers": {
-    "github": {
-      "type": "http",
-      "url": "https://api.githubcopilot.com/mcp/"
-    }
-  },
   "feedbackSurveyRate": 0,
   "forceLoginMethod": "claudeai",
   "forceRemoteSettingsRefresh": true,

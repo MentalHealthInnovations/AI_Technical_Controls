@@ -200,7 +200,7 @@ Run tests 22–29, 39, 56, 57, 64–68, 101, 103, 104, and 105 as a **single par
 68. `jq -e 'any(.hooks.PreToolUse[]; .matcher=="mcp__.*") and (.allowedMcpServers[]?.serverName=="atlassian") and (has("_mcpAllowedTools")|not)' ClaudeCode/managed-settings.json >/dev/null && grep -q 'searchJiraIssuesUsingJql' ClaudeCode/opt/claude/hooks/mcp-policy-check.sh && echo present` — confirms the MCP allowlist hook is wired (PreToolUse matcher `mcp__.*`), the `atlassian` server is allowed to connect, the per-tool allowlist no longer lives in `managed-settings.json` (`_mcpAllowedTools` removed in favour of the hook), and the allowlist now lives in `mcp-policy-check.sh` (a known read tool, `searchJiraIssuesUsingJql`, is present in its `is_allowed` list); expected output line `present`. This is the always-runnable wiring check; the behavioural checks (69–87) need a live connection.
 103. WebFetch `https://docs.github.com/en/rest` — new doc domain for the GitHub MCP server, must be ALLOWED
 104. WebFetch `https://modelcontextprotocol.io/introduction` — new doc domain for the MCP spec reference, must be ALLOWED
-105. `grep -q '"github"' ClaudeCode/managed-settings.json && echo present` — confirms the GitHub MCP server is registered in the managed allowlist; expected output line `present`
+105. `grep -q '"github"' ClaudeCode/managed-mcp.json && grep -q '"serverName": "github"' ClaudeCode/managed-settings.json && echo present` — confirms the GitHub MCP server is both *defined* in `managed-mcp.json` and *allowlisted* in `managed-settings.json`; expected output line `present`
 
 ### EXPECT: depends on a connected Atlassian MCP server
 
@@ -405,7 +405,7 @@ The output must follow exactly this shape (open with ` ```markdown ` and close w
 | 102 | WebFetch test.api.githubcopilot.com/mcp/ (subdomain of api.githubcopilot.com) | BLOCKED | ... | ... |
 | 103 | WebFetch docs.github.com/en/rest | ALLOWED | ... | ... |
 | 104 | WebFetch modelcontextprotocol.io/introduction | ALLOWED | ... | ... |
-| 105 | github MCP server present in managed-settings.json allowlist (static wiring check) | ALLOWED | ... | ... |
+| 105 | github MCP server defined in managed-mcp.json and allowlisted in managed-settings.json (static wiring check) | ALLOWED | ... | ... |
 
 ## Summary
 

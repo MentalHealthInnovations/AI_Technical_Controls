@@ -33,20 +33,27 @@ Do not proceed without all five. If the user is unsure, point them at the server
 
 Read each of the following before editing. The skill assumes the file shapes documented here; if any has drifted, stop and ask the user to update the skill first.
 
-- `ClaudeCode/managed-settings.json` — must contain `allowedMcpServers`, `enabledMcpjsonServers`, and `sandbox.network.allowedDomains` arrays.
+- `ClaudeCode/managed-settings.json` — must contain `allowedMcpServers`, `enabledMcpjsonServers`, and `sandbox.network.allowedDomains` arrays. **No server definitions live here** — `managed-settings.json` carries only the *policy* (allowlist, `allowManagedMcpServersOnly`).
+- `ClaudeCode/managed-mcp.json` — the server-definition file deployed to `/Library/Application Support/ClaudeCode/managed-mcp.json`. When present, Claude Code treats it as the exclusive set of MCP servers (Option 1 in [the docs](https://code.claude.com/docs/en/mcp#managed-mcp-configuration)). All `mcpServers` entries belong here.
 - `ClaudeCode/opt/claude/hooks/webfetch-policy-check.sh` — must contain the `allowed_entries=( ... )` array.
 - `README.md` — the file manifest table near the top and the **Approved MCP servers** subsection near `## Control surfaces`.
 - `.claude/skills/test-guardrails/SKILL.md` — the EXPECT: ALLOWED batch and the report table.
 
-### 3. Edit `managed-settings.json`
+### 3. Edit `managed-settings.json` and `managed-mcp.json`
 
-Make these edits in a single pass:
+Make these edits in a single pass.
 
-- Add the slug (a JSON string) to `allowedMcpServers`.
-- Add the slug to `enabledMcpjsonServers`. (Required when `allowManagedMcpServersOnly: true` — without it, the server is approved but not actually permitted to run.)
-- Add a top-level `mcpServers` object (sibling of `permissions`, `sandbox`, `hooks`) if it does not yet exist. Add a key for the new server using this exact shape:
+**In `managed-settings.json` (policy only):**
 
-  ```json
+- Add the slug to `allowedMcpServers` as `{ "serverName": "<slug>" }`.
+- Add the slug as a bare string to `enabledMcpjsonServers`.
+
+**In `managed-mcp.json` (the server definition):**
+
+Add a key under `mcpServers` using this exact shape for stdio servers:
+
+```json
+{
   "mcpServers": {
     "<slug>": {
       "command": "<command>",
@@ -56,9 +63,23 @@ Make these edits in a single pass:
       }
     }
   }
-  ```
+}
+```
 
-  The empty string for each env var is intentional — it documents the requirement without ever placing a secret in source control. Claude Code reads the live value from the user's environment at server startup.
+Or for a remote HTTP server with OAuth (preferred — no token plumbing):
+
+```json
+{
+  "mcpServers": {
+    "<slug>": {
+      "type": "http",
+      "url": "https://server.example.com/mcp/"
+    }
+  }
+}
+```
+
+The empty string for each env var is intentional — it documents the requirement without ever placing a secret in source control. Claude Code reads the live value from the user's environment at server startup. For remote HTTP servers, omit `headers` entirely so Claude Code falls back to OAuth on the first `401` — checked-in tokens are forbidden because `managed-mcp.json` is world-readable on the device.
 
 ### 4. Sync the WebFetch allowlist (if new domains)
 
@@ -73,7 +94,7 @@ The sync requirement is called out in the comment block at the top of `allowed_e
 
 ### 5. Document the server in `README.md`
 
-- Add a row to the file manifest table only if you are creating a new server-specific doc file. The `mcpServers` config itself lives in `managed-settings.json` and does not need a manifest entry.
+- Add a row to the file manifest table only if you are creating a new server-specific doc file. The `mcpServers` config itself lives in `managed-mcp.json` (already listed) and does not need a new manifest entry.
 - Under **Approved MCP servers** (create the section if missing), add a bullet:
   > `<slug>` — one-line purpose. Runtime: `<runtime>`. Auth: `<ENV_VAR_NAME>` (with required scopes). Docs: `<URL>`.
 - Under the same heading, add an **External prerequisites** sub-bullet block listing the human-side tasks. Always include:
@@ -88,7 +109,7 @@ Add at minimum:
 
 - One ALLOWED test per new doc domain — a representative `WebFetch <https://newdomain/page>` URL.
 - One BLOCKED test per new doc domain — `WebFetch <https://sub.newdomain/page>` to confirm no subdomain wildcard, mirroring tests 38 and 39.
-- One ALLOWED test verifying the server entry is present in `managed-settings.json` (a `grep -q '"<slug>"' ClaudeCode/managed-settings.json` sequence).
+- One ALLOWED test verifying the server entry is present in `managed-mcp.json` (a `grep -q '"<slug>"' ClaudeCode/managed-mcp.json` sequence) and another that the slug is in the allowlist in `managed-settings.json`.
 
 Add matching rows to the report table at the bottom of `test-guardrails/SKILL.md`. Renumber subsequent tests only if you are inserting in the middle; appending at the end is always safer.
 
