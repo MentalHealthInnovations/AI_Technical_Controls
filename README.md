@@ -81,9 +81,21 @@ Claude Code uses a four-layer configuration system; higher layers take precedenc
 
 Server definitions live in **`managed-mcp.json`** (deployed to `/Library/Application Support/ClaudeCode/managed-mcp.json`). This is Claude Code's "exclusive control" mode — when the file is present, it is the entire set of MCP servers users can run; nothing else is permitted. `managed-settings.json` carries only the *policy* layer (`allowedMcpServers` allowlist, `allowManagedMcpServersOnly: true`).
 
-The `github` entry has no `headers`, so Claude Code detects the `401` on first request and prompts an OAuth flow via `/mcp` against the engineer's own GitHub account. No shared org token, every action attributable. Tokens are stored securely per machine and refreshed automatically; revoke at https://github.com/settings/applications. If `claude mcp list` does not show `github`, run `update_ai_governance` and retry. See [MCP server operational notes → Atlassian Remote MCP server](#atlassian-remote-mcp-server) for the `atlassian` connection flow.
+GitHub's OAuth server does not support [Dynamic Client Registration](https://code.claude.com/docs/en/mcp#use-pre-configured-oauth-credentials), so the `github` entry pins a **pre-configured OAuth Client ID** registered against an MHI-owned GitHub OAuth App. The client ID is public and committed to source control; the client secret is **per-engineer** — Claude Code prompts for it once on first authenticate and stores it in the macOS keychain.
 
-A checked-in PAT is not supported — `managed-mcp.json` is world-readable on the device, and JSON does not expand shell substitutions. If you specifically need PAT auth (e.g. to scope to repos OAuth won't cover), add a *user-scoped* override locally — it does not affect anyone else and never enters source control:
+> **Status:** the currently-committed `clientId` is a temporary probe app registered under a personal GitHub account. Once verified working end-to-end, it will be replaced with an MHI-org-owned OAuth App and the secret distributed via 1Password.
+
+**Per-engineer setup (once):**
+
+1. Run `update_ai_governance` so `managed-mcp.json` is deployed locally.
+2. Open Claude Code in any repo, run `/mcp`, select `github`, choose **Authenticate**.
+3. When prompted for the client secret, paste the value from the shared 1Password entry (`MHI Claude Code GitHub OAuth App`).
+4. Browser flow opens, sign in with your MHI GitHub account, approve the requested scopes.
+5. Subsequent sessions don't re-prompt — Claude Code refreshes tokens automatically. Revoke at https://github.com/settings/applications.
+
+If `claude mcp list` does not show `github` at all, run `update_ai_governance` and retry. If `github` is listed but `/mcp` says "Failed — Incompatible auth server", the deployed `managed-mcp.json` is missing the `oauth.clientId` block — re-bootstrap. See [MCP server operational notes → Atlassian Remote MCP server](#atlassian-remote-mcp-server) for the `atlassian` connection flow.
+
+**Alternative: per-user PAT override.** If you specifically need PAT auth (e.g. to scope tightly to specific repos), add a *user-scoped* override locally — it does not affect anyone else and never enters source control:
 
 ```bash
 claude mcp add-json --scope user github "{\"type\":\"http\",\"url\":\"https://api.githubcopilot.com/mcp/\",\"headers\":{\"Authorization\":\"Bearer ${GITHUB_PAT}\"}}"
