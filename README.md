@@ -66,10 +66,21 @@ Claude Code uses a four-layer configuration system; higher layers take precedenc
 - **Bash** — known-bad commands denied outright; medium-risk requires approval; common low-risk allowed.
 - **Network** — egress restricted to an allowlist; generic download/exfiltration tools blocked.
 - **Filesystem** — safe working dirs allowed; `.env`, `secrets/`, SSH keys, cloud creds, and system paths blocked.
-- **GitHub** — read operations mostly allowlisted; PR creation/merge requires approval; history-rewriting flags blocked.
+- **GitHub** — the `gh` CLI is enabled for the PR/issue workflow with layered guardrails; destructive and exfil-capable subcommands are hook-blocked, and merge/push protection is delegated to GitHub rulesets. See [GitHub CLI](#github-cli-gh) below.
 - **MCP servers** — locked to the managed allowlist. New servers go through the same PR process as new domains.
     - Atlassian server: Streamable HTTP (`https://mcp.atlassian.com/v1/mcp`), per-user OAuth, acting as the signed-in engineer. A managed PreToolUse hook (`mcp-policy-check.sh`) enforces a default-deny tool allowlist, currently scoped to Jira reads and writes, project-restricted. See [MCP server operational notes → Tool allowlist](#tool-allowlist-default-deny).
 - **Skills** — `disableSkillShellExecution: true` prevents skill scripts from shelling out directly, forcing them through the hook-policed tool pathway.
+
+### GitHub CLI (`gh`)
+
+Agent-driven development is significantly slower when every GitHub operation (opening a PR, listing PRs, triaging issues) has to be handed back to a human, so the `gh` CLI is deliberately usable from sandboxed Bash. For that to work the OS sandbox must let the `gh` **binary** read its own `~/.config/gh/config.yml` / `hosts.yml` — so that directory is intentionally absent from `sandbox.filesystem.denyRead` (see `_comment_ghConfig` in `managed-settings.json`). The credential is shielded by layers other than the blanket read-deny:
+
+- **Claude's Read tool** is denied on `~/.config/gh/**` (permission rule in `managed-settings.json`).
+- **Bash commands that name the config path** are denied by the `gh_config_path` pre-block in `bash-policy-check.sh` — `gh` never takes its config path as an argument, so any command text mentioning it is an attempt to read the token with an allowlisted text tool.
+- **`output-redact.sh`** blocks any tool output containing a GitHub token (`gh[pousr]_…` / `github_pat_…` patterns) from reaching Claude's context — the backstop for path-glob evasion of the pre-block.
+- **Subcommand allowlist**: only `gh issue|pr|repo|gist|label|release` pass the hook at all; everything else is denied by default. On top of that, two pre-blocks fire ahead of the allowlist: `gh_credential_surface` denies `gh auth` (including `gh auth token`, which prints the live credential), `gh api`, `gh secret`, `gh ssh-key`, `gh gpg-key`, and `gh codespace` explicitly; `gh_subcommand` denies `gist create/edit`, `repo delete/archive/rename/edit/create/fork`, `release create/upload/delete/edit`, and `pr merge --admin`.
+
+**Push-to-main and merge protection is intentionally *not* enforced client-side.** Plain `gh pr merge` and `git push` are allowed by the hook; the control locus for "don't land unreviewed changes on main" is GitHub itself — branch protection rulesets on governed repos (require a PR with approvals, block force pushes, restrict deletions). Server-side rules hold no matter which client — Claude, a human terminal, or CI — performs the operation, which is exactly why they, and not CLI crippling, are the right place for that control. The one client-side exception is `--admin`, which exists to bypass those rules and is therefore hook-blocked.
 
 ## Hooks
 

@@ -148,6 +148,39 @@ if printf '%s' "$cmd" | grep -Eqi '^tfsec\b.*\s--update\b'; then
   emit_deny "tfsec_update" "tfsec --update blocked by policy"
 fi
 
+# gh's config dir (~/.config/gh) is readable by the OS sandbox so the gh binary
+# can authenticate (see _comment_ghConfig in managed-settings.json). gh itself
+# never takes its config path as an argument, so any command text naming that
+# path is an attempt to read the OAuth token with an allowlisted text tool
+# (cat/grep/sed/...). Checked against the raw command so quoted paths are
+# caught too. Glob-evasion variants that dodge this literal match are still
+# covered by output-redact.sh (GITHUB_PAT pattern in lib/redact.sh).
+if printf '%s' "$cmd" | grep -Eqi '\.config/gh(/|[[:space:]]|$)|gh/hosts\.ya?ml'; then
+  emit_deny "gh_config_path" "Direct access to gh config/auth files blocked by policy"
+fi
+
+# gh subcommands that exfiltrate data off-repo in one command (gist create,
+# release asset upload), mutate or create remote repos, or bypass branch
+# protection (--admin merge). Blocked ahead of the allowlist so the broad
+# "^gh\s+(issue|pr|repo|gist|label|release)" entry below can't launder them.
+# Plain `gh pr merge` stays allowed: unapproved merges are rejected server-side
+# by branch protection, which is the intended control locus for push-to-main.
+# gh auth/api/secret/etc. are denied by the default-deny allowlist as before —
+# notably `gh auth token`, which prints the live credential.
+if printf '%s' "$cmd" | grep -Eqi '^gh\s+(gist\s+(create|edit)|repo\s+(delete|archive|rename|edit|create|fork)|release\s+(create|upload|delete|edit)|pr\s+merge\b.*--admin)'; then
+  emit_deny "gh_subcommand" "gh gist create/repo delete/release upload/admin merge blocked by policy"
+fi
+
+# gh's credential surface. These are already outside the allowlist (default-deny),
+# but the final-segment loop bug fixed below showed how a subtle parsing defect can
+# silently disable the allowlist, so the commands that print or manage the live
+# credential get an explicit deny with their own audit reason: `gh auth token`
+# prints the OAuth token; `gh api` is arbitrary authenticated API access; the rest
+# manage secrets and keys.
+if printf '%s' "$cmd" | grep -Eqi '^gh\s+(auth|api|secret|ssh-key|gpg-key|codespace)\b'; then
+  emit_deny "gh_credential_surface" "gh auth/api/secret/key subcommands blocked by policy"
+fi
+
 # Array of allowed command patterns (regex format)
 # Safe git commands: read-only, safe modifications, but blocks dangerous operations
 allowed_patterns=(
@@ -286,6 +319,12 @@ segment_allowed() {
 # Split the quote-stripped command so that operators inside quotes (e.g. a grep regex
 # `"a\|b\|c"`) are not treated as segment boundaries. The allowlist only needs to see
 # each segment's leading verb, which lives outside any quoted argument.
+#
+# printf '%s\n' (NOT '%s'): the trailing newline is load-bearing. `read` returns
+# non-zero on an unterminated final line, so with '%s' the while loop never ran
+# for the LAST segment — meaning any single command with no chain operators
+# bypassed the allowlist entirely (verified 2026-08-05: `basename /tmp/x` was
+# allowed while `basename /tmp/x && ls` was denied on its first segment).
 while IFS= read -r segment; do
   if ! segment_allowed "$segment"; then
     audit_emit "$payload" deny \
@@ -295,7 +334,7 @@ while IFS= read -r segment; do
     echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Command not in policy allowlist"}}'
     exit 0
   fi
-done < <(printf '%s' "$stripped_cmd" | sed 's/&&/\n/g; s/||/\n/g; s/;/\n/g; s/|/\n/g')
+done < <(printf '%s\n' "$stripped_cmd" | sed 's/&&/\n/g; s/||/\n/g; s/;/\n/g; s/|/\n/g')
 
 audit_emit "$payload" allow cmd "$cmd" segs:json "${separators:-0}"
 echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}'
