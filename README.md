@@ -110,7 +110,20 @@ Three independent layers apply, so no single mistake opens the server up.
 
 The `Authorization` header in `managed-mcp.json` reads `Bearer ${GITHUB_MCP_PAT}` and Claude Code expands that from the engineer's environment at connection time, so no token is committed and no credential is shared between engineers ([per-user credentials](https://code.claude.com/docs/en/managed-mcp#authenticate-with-per-user-credentials)).
 
-1. Create a fine-grained PAT at https://github.com/settings/personal-access-tokens with read-only permissions and only the repositories you need.
+1. Create a fine-grained PAT at https://github.com/settings/personal-access-tokens, scoped to only the repositories you need, with these repository permissions and nothing else. All are read. The allowlisted tools need no write permission anywhere.
+
+   | Permission | Covers |
+   |---|---|
+   | Contents: Read | File contents, repository tree, commits, branches, tags, releases, code and repository search |
+   | Issues: Read | Issue reads, issue search, labels |
+   | Pull requests: Read | Pull request reads and search |
+   | Actions: Read | Workflow runs and job logs |
+   | Code scanning alerts: Read | Code scanning alert reads |
+   | Dependabot alerts: Read | Dependabot alert reads |
+   | Metadata: Read | Leave enabled, several endpoints need it |
+
+   Permission names are from GitHub's [fine-grained token permissions reference](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens). Grant nothing beyond the table. A tool that needs a permission you have not granted fails on its own rather than degrading anything else, so add one only when a tool errors.
+
 2. Put it in your login keychain. The command prompts for the value, so it stays out of shell history. Rerun it to replace a rotated token.
 
    ```bash
