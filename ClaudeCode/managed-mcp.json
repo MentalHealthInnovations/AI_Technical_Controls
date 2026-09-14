@@ -9,10 +9,9 @@
     },
     "github": {
       "type": "http",
-      "url": "https://api.githubcopilot.com/mcp/",
-      "oauth": {
-        "clientId": "Ov23liljsXVNUxRuIJHY",
-        "callbackPort": 33418
+      "url": "https://api.githubcopilot.com/mcp/readonly",
+      "headers": {
+        "Authorization": "Bearer ${GITHUB_MCP_PAT}"
       }
     }
   }
