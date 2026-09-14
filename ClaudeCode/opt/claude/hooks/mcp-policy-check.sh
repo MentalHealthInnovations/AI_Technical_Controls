@@ -46,15 +46,16 @@ is_allowed() {
       #     live secrets and can quote them, which CLAUDE.md forbids reading.
       #   get_teams, get_team_members and list_repository_collaborators, because they
       #     return personal data, covered by the same rule as the PII file hooks.
-      #   The notification reads, discussions, gists, projects, labels, governance and
+      #   list_issue_types and list_issue_fields, because MHI does not use issue types,
+      #     and the first needs an organisation-level permission nobody grants.
+      #   The notification reads, discussions, gists, projects, governance and
       #     search_orgs, because nothing needs them yet. Add on request.
       allowed="get_me get_file_contents get_repository_tree \
                get_commit list_commits search_commits \
                list_branches list_tags get_tag \
                list_releases get_latest_release get_release_by_tag \
                search_code search_repositories \
-               issue_read list_issues search_issues \
-               list_issue_types list_issue_fields get_label \
+               issue_read list_issues search_issues get_label \
                pull_request_read list_pull_requests search_pull_requests \
                actions_get actions_list get_job_logs \
                get_code_scanning_alert list_code_scanning_alerts \
