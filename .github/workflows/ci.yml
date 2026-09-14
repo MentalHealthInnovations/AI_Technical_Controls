@@ -6,8 +6,8 @@ name: CI
 #     .pre-commit-config.yaml and run here via `pre-commit run --all-files`.
 #     This includes the PII staged-scan local hook, so contributors who
 #     skipped `pre-commit install` locally still cannot land PII content.
-#   - hook-tests: ClaudeCode/tests/run_all.sh — the regression suite for the
-#     PII hook layers (path-policy, content-sniff, staged-scan, wild corpus).
+#   - hook-tests: ClaudeCode/tests/run_all.sh, the hook and library regression
+#     suites. run_all.sh owns the list of suites it runs.
 #
 # CI covers syntax, config validity, and hook-script regression, and is the
 # mandatory merge gate. It does NOT verify live guardrail behaviour under
@@ -58,7 +58,7 @@ jobs:
     # Pin the suite to one minimal environment — Alpine (BusyBox awk, apk) —
     # so GitHub CI and local act runs exercise the same thing. The tests need
     # only bash, jq, and git on top of the base image.
-    container: alpine:3.22
+    container: alpine:3.23
     steps:
       - name: Install test dependencies
         run: apk add --no-cache bash jq git

@@ -1,0 +1,17 @@
+{"name": "auth_prose_basic_commands", "text": "# basic commands - anchored because they modify filesystem/env.", "expect": "clear"}
+{"name": "auth_prose_capitalised_word", "text": "Token Authentication is documented separately", "expect": "clear"}
+{"name": "auth_prose_hyphenated_value", "text": "bearer token-based approach for the gateway", "expect": "clear"}
+{"name": "auth_prose_basic_auth_sentence", "text": "Basic authentication is required for this endpoint", "expect": "clear"}
+{"name": "auth_lowercase_value_known_miss", "text": "token abcdefghijkl", "expect": "clear"}
+{"name": "auth_basic_base64", "text": "Authorization: Basic YWRtaW46cGFzc3dvcmQ=", "expect": "redacted", "pattern": "AUTH_HEADER"}
+{"name": "auth_bearer_base64", "text": "Authorization: Bearer dXNlcjpwYXNzd29yZA==", "expect": "redacted", "pattern": "AUTH_HEADER"}
+{"name": "auth_token_with_digits", "text": "token 12345678abcdef", "expect": "redacted", "pattern": "AUTH_HEADER"}
+{"name": "auth_prose_and_credential_same_line", "text": "basic commands and Authorization: Bearer AbCdEf1234567890", "expect": "redacted", "pattern": "AUTH_HEADER", "survives": "basic commands"}
+{"name": "aws_key_id", "text": "aws_access_key_id = AKIAIOSFODNN7EXAMPLE", "expect": "redacted", "pattern": "AWS_KEY_ID"}
+{"name": "github_pat", "text": "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789", "expect": "redacted", "pattern": "GITHUB_PAT"}
+{"name": "jwt", "text": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJFWEFNUExFIn0.c2lnbmF0dXJlRVhBTVBMRQ", "expect": "redacted", "pattern": "JWT"}
+{"name": "slack_token", "text": "xoxb-EXAMPLE-000000-abcdefghij", "expect": "redacted", "pattern": "SLACK_TOKEN"}
+{"name": "pem_block_header", "text": "-----BEGIN RSA PRIVATE KEY-----", "expect": "redacted", "pattern": "PEM_BLOCK"}
+{"name": "key_assignment_real_value", "text": "password=Sup3rL0ngV4lueThatIsTwentyPlus", "expect": "redacted", "pattern": "KEY_ASSIGNMENT"}
+{"name": "key_assignment_placeholder", "text": "password=example-value-not-a-real-one", "expect": "clear"}
+{"name": "clean_prose", "text": "The deployment runs on ubuntu-latest with pre-commit installed", "expect": "clear"}
