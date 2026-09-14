@@ -91,32 +91,43 @@ Agent-driven development is significantly slower when every GitHub operation (op
 
 | Server | Runtime | Auth | Docs |
 |---|---|---|---|
-| `atlassian` | Remote HTTP (`https://mcp.atlassian.com/v1/mcp`) | OAuth (per-user, browser flow at first connect) | https://github.com/atlassian/atlassian-mcp-server |
-| `github` | Remote HTTP (`https://api.githubcopilot.com/mcp/`) | OAuth (per-user, browser flow at first connect) | https://github.com/github/github-mcp-server |
+| `atlassian` | Remote HTTP (`https://mcp.atlassian.com/v1/mcp`) | OAuth, per-user, browser flow at first connect | https://github.com/atlassian/atlassian-mcp-server |
+| `github` | Remote HTTP (`https://api.githubcopilot.com/mcp/readonly`) | Per-user personal access token (PAT) from the engineer's environment | https://github.com/github/github-mcp-server |
 
-Server definitions live in **`managed-mcp.json`** (deployed to `/Library/Application Support/ClaudeCode/managed-mcp.json`). This is Claude Code's "exclusive control" mode — when the file is present, it is the entire set of MCP servers users can run; nothing else is permitted. `managed-settings.json` carries only the *policy* layer (`allowedMcpServers` allowlist, `allowManagedMcpServersOnly: true`).
+Server definitions live in `managed-mcp.json`, deployed to `/Library/Application Support/ClaudeCode/managed-mcp.json`. That file puts Claude Code into exclusive control. It is the whole set of servers anyone on the machine can run, and users cannot add their own, including through a project `.mcp.json` or the `--mcp-config` flag ([managed MCP documentation](https://code.claude.com/docs/en/managed-mcp#exclusive-control-with-managed-mcp-json)). `managed-settings.json` holds the policy layer around it, `allowManagedMcpServersOnly` and the `allowedMcpServers` allowlist.
 
-GitHub's OAuth server does not support [Dynamic Client Registration](https://code.claude.com/docs/en/mcp#use-pre-configured-oauth-credentials), so the `github` entry pins a **pre-configured OAuth Client ID** registered against an MHI-owned GitHub OAuth App. The client ID is public and committed to source control; the client secret is **per-engineer** — Claude Code prompts for it once on first authenticate and stores it in the macOS keychain.
+Which tools a connected server may run is decided separately, by the default-deny allowlist in `mcp-policy-check.sh`. Nothing else grants a tool, so a newly added server can connect and still do nothing until its tools are listed there.
 
-> **Status:** the currently-committed `clientId` is a temporary probe app registered under a personal GitHub account. Once verified working end-to-end, it will be replaced with an MHI-org-owned OAuth App and the secret distributed via 1Password.
+#### How `github` is restricted
 
-**Per-engineer setup (once):**
+Three independent layers apply, so no single mistake opens the server up.
 
-1. Run `update_ai_governance` so `managed-mcp.json` is deployed locally.
-2. Open Claude Code in any repo, run `/mcp`, select `github`, choose **Authenticate**.
-3. When prompted for the client secret, paste the value from the shared 1Password entry (`MHI Claude Code GitHub OAuth App`).
-4. Browser flow opens, sign in with your MHI GitHub account, approve the requested scopes.
-5. Subsequent sessions don't re-prompt — Claude Code refreshes tokens automatically. Revoke at https://github.com/settings/applications.
+1. **The endpoint is GitHub's read-only one.** The URL ends in `/readonly`, which GitHub honours server-side ([remote server documentation](https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md)). Every write is refused before our own policy is consulted.
+2. **The tool allowlist is read-only too**, and holds if the URL is ever changed back. It omits every write tool, the secret-scanning reads (they locate live secrets, which `CLAUDE.md` forbids reading), and the team and collaborator reads (personal data). See `is_allowed` in `mcp-policy-check.sh` for the current list.
+3. **The token is the engineer's own**, so GitHub applies that person's permissions on top. A fine-grained PAT restricted to the repositories they need bounds it further.
 
-If `claude mcp list` does not show `github` at all, run `update_ai_governance` and retry. If `github` is listed but `/mcp` says "Failed — Incompatible auth server", the deployed `managed-mcp.json` is missing the `oauth.clientId` block — re-bootstrap. See [MCP server operational notes → Atlassian Remote MCP server](#atlassian-remote-mcp-server) for the `atlassian` connection flow.
+#### Per-engineer setup (once)
 
-**Alternative: per-user PAT override.** If you specifically need PAT auth (e.g. to scope tightly to specific repos), add a *user-scoped* override locally — it does not affect anyone else and never enters source control:
+The `Authorization` header in `managed-mcp.json` reads `Bearer ${GITHUB_MCP_PAT}` and Claude Code expands that from the engineer's environment at connection time, so no token is committed and no credential is shared between engineers ([per-user credentials](https://code.claude.com/docs/en/managed-mcp#authenticate-with-per-user-credentials)).
 
-```bash
-claude mcp add-json --scope user github "{\"type\":\"http\",\"url\":\"https://api.githubcopilot.com/mcp/\",\"headers\":{\"Authorization\":\"Bearer ${GITHUB_PAT}\"}}"
-```
+1. Create a fine-grained PAT at https://github.com/settings/personal-access-tokens with read-only permissions and only the repositories you need.
+2. Put it in your login keychain. The command prompts for the value, so it stays out of shell history. Rerun it to replace a rotated token.
 
-Set `GITHUB_PAT` in the shell session where you launch Claude Code (do not persist it in `~/.zshrc`). Generate fine-grained tokens at https://github.com/settings/personal-access-tokens. See https://github.com/github/github-mcp-server/blob/main/docs/installation-guides/install-claude.md for full upstream guidance.
+   ```bash
+   security add-generic-password -U -a "$USER" -s github-mcp-pat -w
+   ```
+
+3. Add this line to `~/.zshrc`, so the dotfile holds the lookup rather than the token:
+
+   ```bash
+   export GITHUB_MCP_PAT="$(security find-generic-password -a "$USER" -s github-mcp-pat -w)"
+   ```
+
+4. Run `update_ai_governance`, then check `/mcp` shows `github` as connected.
+
+Revoke your own token at https://github.com/settings/personal-access-tokens, which cuts off nobody else.
+
+If `claude mcp list` does not show `github`, the deployed `managed-mcp.json` is stale, so run `update_ai_governance`. If it is listed but reports a missing variable, `GITHUB_MCP_PAT` is not set in the environment Claude Code started from. An unset variable is passed through as the literal `${GITHUB_MCP_PAT}` rather than failing at load ([variable expansion](https://code.claude.com/docs/en/mcp#environment-variable-expansion-in-mcp-json)). For the `atlassian` connection flow, see [MCP server operational notes → Atlassian Remote MCP server](#atlassian-remote-mcp-server).
 
 ## Hooks
 
@@ -384,7 +395,7 @@ Engineers may improve convenience inside the rails. They do not control the rail
 | New/updated PII path or directory pattern | `pii-path-policy-check.sh` |
 | New/updated PII content detector or threshold tweak | `pii-patterns.sh` (shared by sniffer and pre-commit scanner) |
 | Pre-commit/CI scanner change (exclude prefixes, thresholds) | `pii-staged-scan.sh` |
-| New MCP server | `managed-mcp.json` (server definition) + `managed-settings.json` (allowlist) |
+| New MCP server | `managed-mcp.json` (server definition) + `managed-settings.json` (which servers may connect) + `mcp-policy-check.sh` (which of its tools may run) |
 | Behavioural guidance change | `CLAUDE.md` |
 | Team-wide repo allow rule | `.claude/settings.json` in that repo (not here) |
 | Personal preference | `~/.claude/settings.json` locally (not here) |

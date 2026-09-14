@@ -19,6 +19,11 @@ audit_init "mcp-policy"
 # allowed here but bound to ATLASSIAN_PROJECTS by project_scope_ok below, so a write
 # outside the allowlisted projects is still denied. Other state-changing tools stay
 # omitted, which denies them before the call reaches the server.
+#
+# A name that does not match the server's actual tool is inert rather than dangerous,
+# because the call denies either way. So a tool that should work but reports
+# not_in_allowlist means the name here is wrong, and `/mcp` on a connected session
+# lists the real ones.
 is_allowed() {
   local server="$1" tool="$2" allowed="" t
   case "$server" in
@@ -30,6 +35,30 @@ is_allowed() {
                lookupJiraAccountId searchJiraIssuesUsingJql \
                createJiraIssue editJiraIssue transitionJiraIssue \
                addCommentToJiraIssue addWorklogToJiraIssue createIssueLink"
+      ;;
+    github)
+      # Read tools only. The server URL in managed-mcp.json ends in /readonly, so GitHub
+      # refuses every write before this list is consulted. This list is the second layer,
+      # and the one that still holds if that URL is ever changed back.
+      #
+      # Omitted deliberately, beyond every write tool:
+      #   get_secret_scanning_alert and list_secret_scanning_alerts, because they locate
+      #     live secrets and can quote them, which CLAUDE.md forbids reading.
+      #   get_teams, get_team_members and list_repository_collaborators, because they
+      #     return personal data, covered by the same rule as the PII file hooks.
+      #   The notification reads, discussions, gists, projects, labels, governance and
+      #     search_orgs, because nothing needs them yet. Add on request.
+      allowed="get_me get_file_contents get_repository_tree \
+               get_commit list_commits search_commits \
+               list_branches list_tags get_tag \
+               list_releases get_latest_release get_release_by_tag \
+               search_code search_repositories \
+               issue_read list_issues search_issues \
+               list_issue_types list_issue_fields get_label \
+               pull_request_read list_pull_requests search_pull_requests \
+               actions_get actions_list get_job_logs \
+               get_code_scanning_alert list_code_scanning_alerts \
+               get_dependabot_alert list_dependabot_alerts"
       ;;
     *)
       return 1
