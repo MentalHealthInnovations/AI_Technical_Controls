@@ -29,13 +29,19 @@ claude_skills_dir="${claude_config_dir}.claude/skills/"
 # script works from any working directory. This is the checkout's ClaudeCode/ dir.
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Flat files deployed to claude_config_dir, checked and copied from this one list so a
+# new file cannot be added to one and forgotten in the other. managed-mcp.json is Claude
+# Code's exclusive list of MCP servers, so a server added to the repo copy does not
+# appear until this lands. managed-settings.json governs only the policy layer around it.
+config_files=(managed-settings.json managed-mcp.json CLAUDE.md)
+
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "This script writes to $claude_config_dir and $claude_hooks_dir, which require root." >&2
   echo "Re-run it as: sudo $0" >&2
   exit 1
 fi
 
-for f in managed-settings.json CLAUDE.md; do
+for f in "${config_files[@]}"; do
   if [[ ! -f "$script_dir/$f" ]]; then
     echo "Expected $script_dir/$f but it is missing. Is this the ClaudeCode/ directory of the repo?" >&2
     exit 1
@@ -53,11 +59,10 @@ fi
 echo "Creating directories..."
 mkdir -p "$claude_config_dir" "$claude_hooks_dir" "$claude_skills_dir"
 
-echo "Copying managed-settings.json..."
-cp "$script_dir/managed-settings.json" "$claude_config_dir"
-
-echo "Copying CLAUDE.md..."
-cp "$script_dir/CLAUDE.md" "$claude_config_dir"
+echo "Copying ${config_files[*]}..."
+for f in "${config_files[@]}"; do
+  cp "$script_dir/$f" "$claude_config_dir"
+done
 
 echo "Copying hooks..."
 # Mirrors pull_claude_governance.sh. Recursive copy because hooks ship a lib/
