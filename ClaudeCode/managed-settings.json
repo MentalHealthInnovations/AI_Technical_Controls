@@ -1,8 +1,8 @@
 {
   "allowedChannelPlugins": [],
   "allowedHttpHookUrls": [],
-  "_comment_allowedMcpServers": "Controls which MCP servers may CONNECT. Which of a connected server's TOOLS may run is a separate, default-deny allowlist that lives in /opt/claude/hooks/mcp-policy-check.sh (see its `is_allowed` function), not here: that hook is the sole consumer of the tool allowlist, so it is kept inline there rather than split across two files.",
-  "allowedMcpServers": [{"serverName": "atlassian"}],
+  "_comment_allowedMcpServers": "This list decides which servers may connect. Which of a connected server's tools may run is a separate, default-deny allowlist in /opt/claude/hooks/mcp-policy-check.sh (its `is_allowed` function), kept there because that hook is its only consumer. Entries match by URL rather than by name, because a `serverName` entry counts only while the list holds no `serverUrl` entry, so a name-matched server would stop being allowed the moment any URL entry is added, and would also match an impostor server registered under the same name. Servers defined in managed-mcp.json skip this list entirely unless their definition uses ${VAR} expansion. The github entry does use it, for the per-user token, so the URL entry below is what admits it.",
+  "allowedMcpServers": [{"serverUrl": "https://mcp.atlassian.com/*"}, {"serverUrl": "https://api.githubcopilot.com/*"}],
   "allowManagedHooksOnly": true,
   "allowManagedMcpServersOnly": true,
   "allowManagedPermissionRulesOnly": true,
@@ -323,7 +323,9 @@
         "docs.espocrm.com",
         "forum.espocrm.com",
         "simplybook.me",
-        "help.simplybook.me"
+        "help.simplybook.me",
+        "modelcontextprotocol.io",
+        "api.githubcopilot.com"
       ],
       "_comment_webfetchPathScopes": "WebFetch-only path tightening, read solely by webfetch-policy-check.sh. Each key is a host that also appears in allowedDomains; its value is a path prefix that WebFetch URLs to that host must fall under (exact match or a '/'-bounded child). Hosts not listed here are unrestricted. This does NOT constrain Bash network egress — the OS sandbox sees host only and allows every path — so treat it as a WebFetch convenience/blast-radius control, not a hard boundary.",
       "_webfetchPathScopes": {

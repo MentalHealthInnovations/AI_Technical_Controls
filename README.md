@@ -87,6 +87,67 @@ Agent-driven development is significantly slower when every GitHub operation (op
 
 **Push-to-main and merge protection is intentionally *not* enforced client-side.** Plain `gh pr merge` and `git push` are allowed by the hook. The control for "don't land unreviewed changes on main" sits in GitHub itself, in branch protection rulesets on governed repos (require a PR with approvals, block force pushes, restrict deletions). Server-side rules hold no matter which client performs the operation, whether Claude, a human terminal, or CI, and that is why they, rather than CLI crippling, are the right place for that control. The one client-side exception is `--admin`, which exists to bypass those rules and is therefore hook-blocked.
 
+### Approved MCP servers
+
+| Server | Runtime | Auth | Docs |
+|---|---|---|---|
+| `atlassian` | Remote HTTP (`https://mcp.atlassian.com/v1/mcp`) | OAuth, per-user, browser flow at first connect | https://github.com/atlassian/atlassian-mcp-server |
+| `github` | Remote HTTP (`https://api.githubcopilot.com/mcp/`) | Per-user personal access token (PAT) from the engineer's environment | https://github.com/github/github-mcp-server |
+
+Server definitions live in `managed-mcp.json`, deployed to `/Library/Application Support/ClaudeCode/managed-mcp.json`. That file puts Claude Code into exclusive control. It is the whole set of servers anyone on the machine can run, and users cannot add their own, including through a project `.mcp.json` or the `--mcp-config` flag ([managed MCP documentation](https://code.claude.com/docs/en/managed-mcp#exclusive-control-with-managed-mcp-json)). `managed-settings.json` holds the policy layer around it, `allowManagedMcpServersOnly` and the `allowedMcpServers` allowlist.
+
+Which tools a connected server may run is decided separately, by the default-deny allowlist in `mcp-policy-check.sh`. Nothing else grants a tool, so a newly added server can connect and still do nothing until its tools are listed there.
+
+#### How `github` is restricted
+
+Reads are broad, writes are narrow. Three layers apply, and the write path has to pass all three.
+
+1. **The tool allowlist** in `is_allowed` in `mcp-policy-check.sh` grants reads plus the issue and pull request writes, and nothing else. Omitted on purpose: merging and branch updates, all content writes (they belong in git under the bash policy), repository creation and deletion, workflow triggers, the secret-scanning reads (they locate live secrets, which `CLAUDE.md` forbids reading), and the team and collaborator reads (personal data).
+2. **The repository allowlist**, `GITHUB_REPOS` in the same hook, binds every write to named repositories, the way `ATLASSIAN_PROJECTS` binds the Jira writes. A write whose owner and repository are missing or unparseable is denied rather than passed through, so the layer fails closed. Reads are not bound by it, because the token's own repository selection already limits them.
+3. **The token is the engineer's own**, so GitHub applies that person's permissions on top, and a fine-grained PAT restricted to the repositories they need bounds it again.
+
+Branch protection rulesets and CODEOWNERS still hold server-side whatever the client does, which is what keeps an allowed pull request write from landing unreviewed.
+
+#### Per-engineer setup (once)
+
+The `Authorization` header in `managed-mcp.json` reads `Bearer ${GITHUB_MCP_PAT}` and Claude Code expands that from the engineer's environment at connection time, so no token is committed and no credential is shared between engineers ([per-user credentials](https://code.claude.com/docs/en/managed-mcp#authenticate-with-per-user-credentials)).
+
+Tokens are per engineer rather than one shared token, so the GitHub audit log attributes each action to a person, revoking one affects one person, and each token reaches only the repositories that person works on. The cost is a token to create per engineer, and to recreate at expiry.
+
+1. Create a fine-grained PAT at https://github.com/settings/personal-access-tokens. Set **Resource owner** to the MHI organisation, not your personal account, or the token reaches only your own repositories. Depending on the organisation's token policy, an admin may have to approve it before it works, and again at renewal. Scope it to only the repositories you need, with these repository permissions and nothing else. All are read. The allowlisted tools need no write permission anywhere.
+
+   | Permission | Covers |
+   |---|---|
+   | Contents: Read | File contents, repository tree, commits, branches, tags, releases, code and repository search |
+   | Issues: Read and write | Issue reads and search, labels, creating and updating issues, issue comments |
+   | Pull requests: Read and write | Pull request reads and search, opening and updating pull requests, review comments |
+   | Actions: Read | Workflow runs and job logs |
+   | Code scanning alerts: Read | Code scanning alert reads |
+   | Dependabot alerts: Read | Dependabot alert reads |
+   | Metadata: Read | Leave enabled, several endpoints need it |
+
+   Contents stays read. That is what keeps commits, branches and file changes out of the MCP path, so writes are limited to issues and pull request discussion.
+
+   Permission names are from GitHub's [fine-grained token permissions reference](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens). Grant nothing beyond the table. A tool that needs a permission you have not granted fails on its own rather than degrading anything else, so add one only when a tool errors.
+
+2. Put it in your login keychain. The command prompts for the value, so it stays out of shell history. Rerun it to replace a rotated token.
+
+   ```bash
+   security add-generic-password -U -a "$USER" -s github-mcp-pat -w
+   ```
+
+3. Add this line to `~/.zshrc`, so the dotfile holds the lookup rather than the token:
+
+   ```bash
+   export GITHUB_MCP_PAT="$(security find-generic-password -a "$USER" -s github-mcp-pat -w)"
+   ```
+
+4. Run `update_ai_governance`, then check `/mcp` shows `github` as connected.
+
+Revoke your own token at https://github.com/settings/personal-access-tokens, which cuts off nobody else.
+
+If `claude mcp list` does not show `github`, the deployed `managed-mcp.json` is stale, so run `update_ai_governance`. If it is listed but reports a missing variable, `GITHUB_MCP_PAT` is not set in the environment Claude Code started from. An unset variable is passed through as the literal `${GITHUB_MCP_PAT}` rather than failing at load ([variable expansion](https://code.claude.com/docs/en/mcp#environment-variable-expansion-in-mcp-json)). For the `atlassian` connection flow, see [MCP server operational notes → Atlassian Remote MCP server](#atlassian-remote-mcp-server).
+
 ## Hooks
 
 Hooks are deployed to `/opt/claude/hooks/` and must be present before Claude Code runs. If a policy hook is missing or fails, the operation is blocked.
@@ -308,6 +369,7 @@ Verify after deploying:
 cat /Library/Application\ Support/ClaudeCode/VERSION
 shasum -a 256 /opt/claude/hooks/*.sh
 shasum -a 256 /Library/Application\ Support/ClaudeCode/managed-settings.json
+shasum -a 256 /Library/Application\ Support/ClaudeCode/managed-mcp.json
 ```
 
 Then open Claude Code in this repo and run `/test-guardrails` to confirm all controls are live. For hook or permission changes, do this on affected machines immediately after merge rather than waiting for cron.
@@ -333,7 +395,7 @@ Ownership:
 
 | Layer | Owned by |
 |---|---|
-| `managed-settings.json`, `CLAUDE.md`, hooks, sandbox, approved domains/MCP | IT and security |
+| `managed-settings.json`, `managed-mcp.json`, `CLAUDE.md`, hooks, sandbox, approved domains/MCP | IT and security |
 | `.claude/settings.json` (repo-local automation, low-risk allowlists) | Repo maintainers |
 | `~/.claude/settings.json`, `.claude/settings.local.json` (personal/convenience) | Individual engineers |
 
@@ -352,7 +414,7 @@ Engineers may improve convenience inside the rails. They do not control the rail
 | New/updated PII path or directory pattern | `pii-path-policy-check.sh` |
 | New/updated PII content detector or threshold tweak | `pii-patterns.sh` (shared by sniffer and pre-commit scanner) |
 | Pre-commit/CI scanner change (exclude prefixes, thresholds) | `pii-staged-scan.sh` |
-| New MCP server | `managed-settings.json` |
+| New MCP server | `managed-mcp.json` (server definition) + `managed-settings.json` (which servers may connect) + `mcp-policy-check.sh` (which of its tools may run) |
 | Behavioural guidance change | `CLAUDE.md` |
 | Team-wide repo allow rule | `.claude/settings.json` in that repo (not here) |
 | Personal preference | `~/.claude/settings.json` locally (not here) |

@@ -17,8 +17,22 @@ audit_init "mcp-policy"
 # segment to its server's list. Jira write tools (createJiraIssue, editJiraIssue,
 # transitionJiraIssue, addCommentToJiraIssue, addWorklogToJiraIssue, createIssueLink) are
 # allowed here but bound to ATLASSIAN_PROJECTS by project_scope_ok below, so a write
-# outside the allowlisted projects is still denied. Other state-changing tools stay
-# omitted, which denies them before the call reaches the server.
+# outside the allowlisted projects is still denied. The github write tools are bound the
+# same way to GITHUB_REPOS by repo_scope_ok. Other state-changing tools stay omitted,
+# which denies them before the call reaches the server.
+#
+# A name that does not match the server's actual tool is inert rather than dangerous,
+# because the call denies either way. So a tool that should work but reports
+# not_in_allowlist means the name here is wrong, and `/mcp` on a connected session
+# lists the real ones.
+# Tools that write to a repository, listed once because two places need them: is_allowed
+# grants them and repo_scope_ok binds them to GITHUB_REPOS. Keeping one list means a tool
+# cannot be granted here and left unscoped there.
+GITHUB_WRITE_TOOLS="add_issue_comment issue_write \
+                    create_pull_request update_pull_request \
+                    pull_request_review_write add_comment_to_pending_review \
+                    add_reply_to_pull_request_comment"
+
 is_allowed() {
   local server="$1" tool="$2" allowed="" t
   case "$server" in
@@ -30,6 +44,40 @@ is_allowed() {
                lookupJiraAccountId searchJiraIssuesUsingJql \
                createJiraIssue editJiraIssue transitionJiraIssue \
                addCommentToJiraIssue addWorklogToJiraIssue createIssueLink"
+      ;;
+    github)
+      # Reads, plus the issue and pull request writes listed last. Those writes are bound
+      # to GITHUB_REPOS by repo_scope_ok below, the same way the Jira writes are bound to
+      # ATLASSIAN_PROJECTS, so a write outside the allowlisted repositories is denied
+      # even though the tool itself is allowed.
+      #
+      # Omitted deliberately, beyond the write tools listed:
+      #   get_secret_scanning_alert and list_secret_scanning_alerts, because they locate
+      #     live secrets and can quote them, which CLAUDE.md forbids reading.
+      #   get_teams, get_team_members and list_repository_collaborators, because they
+      #     return personal data, covered by the same rule as the PII file hooks.
+      #   merge_pull_request and update_pull_request_branch, because landing or moving a
+      #     branch is a human decision, and branch protection should not be the only
+      #     thing standing in the way.
+      #   create_or_update_file, push_files, delete_file and create_branch, because
+      #     content writes belong in git under the bash policy, not here.
+      #   create_repository, delete_repository, fork_repository, actions_run_trigger,
+      #     label_write and the governance writes, because none of them are review work.
+      #   list_issue_types and list_issue_fields, because MHI does not use issue types,
+      #     and the first needs an organisation-level permission nobody grants.
+      #   The notification reads, discussions, gists, projects and search_orgs, because
+      #     nothing needs them yet. Add on request.
+      allowed="get_me get_file_contents get_repository_tree \
+               get_commit list_commits search_commits \
+               list_branches list_tags get_tag \
+               list_releases get_latest_release get_release_by_tag \
+               search_code search_repositories \
+               issue_read list_issues search_issues get_label \
+               pull_request_read list_pull_requests search_pull_requests \
+               actions_get actions_list get_job_logs \
+               get_code_scanning_alert list_code_scanning_alerts \
+               get_dependabot_alert list_dependabot_alerts \
+               $GITHUB_WRITE_TOOLS"
       ;;
     *)
       return 1
@@ -113,6 +161,45 @@ jql_scope_ok() {
   [[ "$found" -eq 1 ]]
 }
 
+# --- GitHub repository allowlist ---------------------------------------------
+# Every github write tool is bound to these repositories. EDIT THIS LIST to change
+# where Claude Code may write. An empty list denies every github write. Entries are
+# owner/repo, compared case-insensitively, with no wildcards, because an org-wide entry
+# would make the allowlist a formality.
+#
+# Reads are not bound by this list. The token carries its own repository selection, so
+# a read already cannot reach a repository the engineer did not grant, and several read
+# tools (search_code, search_repositories, get_me) name no repository at all.
+GITHUB_REPOS="MentalHealthInnovations/AI_Technical_Controls"
+
+# repo_allowed <owner> <repo> — true iff owner/repo (any case) is in GITHUB_REPOS.
+repo_allowed() {
+  local want r
+  [[ -n "$1" && -n "$2" ]] || return 1
+  want="$(printf '%s/%s' "$1" "$2" | tr '[:upper:]' '[:lower:]')"
+  for r in $GITHUB_REPOS; do
+    [[ "$(printf '%s' "$r" | tr '[:upper:]' '[:lower:]')" == "$want" ]] && return 0
+  done
+  return 1
+}
+
+# repo_scope_ok <server> <tool> <payload> — true unless a github write names a
+# repository outside GITHUB_REPOS. Only the github server is repository-scoped.
+# Each write branch ends in repo_allowed, so a call whose owner or repo is missing
+# or unparseable is denied rather than passed through.
+repo_scope_ok() {
+  local server="$1" tool="$2" pl="$3" owner repo t
+  [[ "$server" == github ]] || return 0
+  for t in $GITHUB_WRITE_TOOLS; do
+    [[ "$t" == "$tool" ]] || continue
+    owner="$(printf '%s' "$pl" | jq -r '.tool_input.owner // empty')"
+    repo="$(printf '%s' "$pl" | jq -r '.tool_input.repo // empty')"
+    repo_allowed "$owner" "$repo"
+    return
+  done
+  return 0
+}
+
 # project_scope_ok <server> <tool> <payload> — true unless the call names a
 # Jira project/issue outside ATLASSIAN_PROJECTS. Only the atlassian server is
 # project-scoped; tools that take no project key are unaffected.
@@ -186,6 +273,10 @@ if is_allowed "$server" "$tool"; then
   # Tool is permitted; now scope project-bearing reads to ATLASSIAN_PROJECTS.
   if ! project_scope_ok "$server" "$tool" "$payload"; then
     emit_deny "project_not_in_allowlist" "Jira project not in the policy allowlist for this server"
+  fi
+  # And scope github writes to GITHUB_REPOS.
+  if ! repo_scope_ok "$server" "$tool" "$payload"; then
+    emit_deny "repo_not_in_allowlist" "GitHub repository not in the policy allowlist for this server"
   fi
   audit_emit "$payload" allow tool_name "$tool_name" server "$server" tool "$tool"
   echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}'
