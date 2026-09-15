@@ -30,7 +30,11 @@ One JSON object per line (JSONL). Required fields:
 | `input` | The full `tool_input` object passed to the hook (e.g. `{"file_path": "/repo/users.csv"}`) |
 | `expect` | Expected `permissionDecision` — `deny`, `allow`, or `unset` (hook exited without emitting a decision) |
 
-## Staged-scan tests
+Optional: `tool_name`, for hooks that branch on it. The MCP cases need it, because `mcp-policy-check.sh` parses the server and tool out of the `mcp__<server>__<tool>` name. Blank lines and lines starting with `#` are skipped, so a case file can group and explain its cases.
+
+## MCP policy tests
+
+`cases/mcp-policy.jsonl` covers [mcp-policy-check.sh](../opt/claude/hooks/mcp-policy-check.sh): the per-server tool allowlist, the Jira project scope, and the GitHub repository scope that binds the github write tools. It runs without a connected MCP server, so CI verifies the deny logic that `/test-guardrails` can otherwise only check against a live connection. Cases that expect `allow` assert the hook emitted an explicit allow, which it does for every permitted tool.
 
 `run_staged_scan_cases.sh` tests the pre-commit / CI scanner ([pii-staged-scan.sh](../scripts/pii-staged-scan.sh)). The scanner needs a real git index, not a JSONL payload, so this runner creates a throwaway repo under `$TMPDIR`, stages fixtures inside it, runs the scanner, and asserts the exit code. The host repo's index is never touched.
 
