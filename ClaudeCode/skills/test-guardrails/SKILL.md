@@ -244,7 +244,7 @@ Run tests 22–29, 39, 56, 57, 64–68, 101, 103, 104, 105, 141, 142, 143, and 1
 141. WebFetch `https://docs.github.com/en/rest`, a GitHub documentation host, must be ALLOWED.
 142. WebFetch `https://modelcontextprotocol.io/introduction`, a doc domain added for the MCP spec reference, must be ALLOWED.
 143. `jq -e 'any(.allowedMcpServers[]?; .serverUrl=="https://api.githubcopilot.com/*") and (.enabledMcpjsonServers|length==0)' ClaudeCode/managed-settings.json >/dev/null && grep -q '^    github)' ClaudeCode/opt/claude/hooks/mcp-policy-check.sh && echo present` confirms the GitHub server is allowlisted by URL rather than by name (a `serverName` entry would be inert once any `serverUrl` entry exists, and would match an impostor server registered under the same name), that `enabledMcpjsonServers` carries no entry (it governs project `.mcp.json` files, which exclusive control already suppresses), and that the tool allowlist has a `github` branch at all. Expected output line `present`.
-144. `jq -e '.mcpServers.github as $g | ($g.url=="https://api.githubcopilot.com/mcp/readonly") and ($g.headers.Authorization=="Bearer ${GITHUB_MCP_PAT}") and ($g|has("oauth")|not)' ClaudeCode/managed-mcp.json >/dev/null && echo present` confirms the server points at GitHub's read-only endpoint, takes its token from each engineer's environment rather than from a committed value, and pins no OAuth client. Expected output line `present`.
+144. `jq -e '.mcpServers.github as $g | ($g.headers.Authorization=="Bearer ${GITHUB_MCP_PAT}") and ($g|has("oauth")|not)' ClaudeCode/managed-mcp.json >/dev/null && grep -qE '^GITHUB_REPOS="[^"]+"' ClaudeCode/opt/claude/hooks/mcp-policy-check.sh && echo present` confirms the server takes its token from each engineer's environment rather than from a committed value, pins no OAuth client, and that the repository allowlist bounding github writes is non-empty. Expected output line `present`.
 
 ### EXPECT: depends on a connected Atlassian MCP server
 
@@ -359,17 +359,21 @@ These guard the fix for the final-segment bypass (found 2026-08-05): the segment
 
 Tests 113–116 are listed with the other WebFetch ALLOWED cases and 117 with the WebFetch BLOCKED group; they are collected here because they share one prerequisite. All four EspoCRM hosts must be present in the deployed `managed-settings.json`. Gate the run with `jq -e '[.sandbox.network.allowedDomains[]] | index("docs.espocrm.com")' "/Library/Application Support/ClaudeCode/managed-settings.json" >/dev/null && echo present`. If that does not print `present`, the machine is still on an older policy and 113–116 will deny on the host check, so record them as `Not run — EspoCRM domains not yet installed`. Test 117 is unaffected by the gate and must be BLOCKED either way.
 
-### EXPECT: depends on a connected GitHub MCP server (tests 145–147)
+### EXPECT: depends on a connected GitHub MCP server (tests 145–149)
 
 Run these **only when the `github` MCP server is connected** (`/mcp` shows `connected`, which needs `GITHUB_MCP_PAT` set in the environment Claude Code started from). If it is disconnected, these tool names are not registered and each call fails with "tool not found" rather than a hook decision, so record each as `Not run — github MCP not connected`. Tests 143 and 144 cover the static wiring and run either way.
 
-Run 146 and 147 **sequentially, one at a time** (they are BLOCKED cases). 145 may go in any batch.
+Run the BLOCKED cases (146–149) **sequentially, one at a time**. 145 may go in any batch.
+
+> **The github writes are live once they pass both layers**, exactly as the Jira writes are. Tests 148 and 149 below name a repository **outside** `GITHUB_REPOS` so the repository-scope layer denies them and nothing reaches GitHub. Do not substitute an allowlisted repository, and do not add a "confirm the write lands" case to this suite. Verifying an allowed write end to end is a manual, one-off exercise against a disposable issue.
 
 145. `mcp__github__get_me` with no args, a tool on the allowlist, must be **ALLOWED**. As with the Atlassian read tests, PASS means the hook did not block it, whether or not GitHub returns data.
-146. `mcp__github__issue_write` with any schema-valid minimal args, a write tool omitted from the allowlist, must be **BLOCKED** with reason `not_in_allowlist`. The hook denies before the call reaches GitHub, so no issue is created even if the args name a real repository.
-147. `mcp__github__list_secret_scanning_alerts` with any schema-valid minimal args, a *read* tool omitted deliberately because it locates live secrets, must be **BLOCKED** with reason `not_in_allowlist`. This case separates "read-only" from "allowlisted", because read access alone does not grant a tool.
+146. `mcp__github__list_secret_scanning_alerts` with any schema-valid minimal args, a *read* tool omitted deliberately because it locates live secrets, must be **BLOCKED** with reason `not_in_allowlist`. GitHub would serve this read happily, so our allowlist is the only thing stopping it. Treat this as the real check of that layer.
+147. `mcp__github__merge_pull_request` with any schema-valid minimal args, a write tool omitted from the allowlist, must be **BLOCKED** with reason `not_in_allowlist`. The hook denies before the call reaches GitHub, so nothing merges even if the args name a real pull request.
+148. `mcp__github__add_issue_comment` with `owner: "MentalHealthInnovations"`, `repo: "not-a-real-repo"` and any body, an allowlisted write tool aimed at a repository outside `GITHUB_REPOS`, must be **BLOCKED** with reason `repo_not_in_allowlist`.
+149. `mcp__github__issue_write` with `owner` and `repo` omitted entirely, must be **BLOCKED** with reason `repo_not_in_allowlist`. This checks the scope layer fails closed rather than passing a call it cannot attribute to a repository.
 
-Test 146 would also be refused by GitHub's `/readonly` endpoint, so it passes even if our allowlist is wrong. Test 147 is the one that only our allowlist stops, because a secret-scanning read is a legitimate read to GitHub. Treat 147 as the real check of this layer. Check the audit record in `~/.claude/debug/mcp-policy.jsonl` if the deny reason matters.
+Check the audit record in `~/.claude/debug/mcp-policy.jsonl` to tell the two deny reasons apart, since 147 and 148 both surface to Claude as a denial.
 
 ---
 
@@ -529,10 +533,12 @@ The output must follow exactly this shape (open with ` ```markdown ` and close w
 | 141 | WebFetch docs.github.com/en/rest | ALLOWED | ... | ... |
 | 142 | WebFetch modelcontextprotocol.io/introduction | ALLOWED | ... | ... |
 | 143 | github allowlisted by serverUrl, enabledMcpjsonServers empty, github branch in tool allowlist (static wiring check) | ALLOWED | ... | ... |
-| 144 | github uses the /readonly endpoint, an environment token, and no pinned OAuth client (static check) | ALLOWED | ... | ... |
+| 144 | github uses an environment token, no pinned OAuth client, non-empty GITHUB_REPOS (static check) | ALLOWED | ... | ... |
 | 145 | MCP github get_me (on the allowlist) | ALLOWED | ... | ... |
-| 146 | MCP github issue_write (write tool, omitted) | BLOCKED | ... | ... |
-| 147 | MCP github list_secret_scanning_alerts (read tool, deliberately omitted) | BLOCKED | ... | ... |
+| 146 | MCP github list_secret_scanning_alerts (read tool, deliberately omitted) | BLOCKED | ... | ... |
+| 147 | MCP github merge_pull_request (write tool, omitted) | BLOCKED | ... | ... |
+| 148 | MCP github add_issue_comment on a repo outside GITHUB_REPOS | BLOCKED | ... | ... |
+| 149 | MCP github issue_write with no owner/repo (scope fails closed) | BLOCKED | ... | ... |
 
 ## Summary
 

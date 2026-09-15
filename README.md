@@ -92,7 +92,7 @@ Agent-driven development is significantly slower when every GitHub operation (op
 | Server | Runtime | Auth | Docs |
 |---|---|---|---|
 | `atlassian` | Remote HTTP (`https://mcp.atlassian.com/v1/mcp`) | OAuth, per-user, browser flow at first connect | https://github.com/atlassian/atlassian-mcp-server |
-| `github` | Remote HTTP (`https://api.githubcopilot.com/mcp/readonly`) | Per-user personal access token (PAT) from the engineer's environment | https://github.com/github/github-mcp-server |
+| `github` | Remote HTTP (`https://api.githubcopilot.com/mcp/`) | Per-user personal access token (PAT) from the engineer's environment | https://github.com/github/github-mcp-server |
 
 Server definitions live in `managed-mcp.json`, deployed to `/Library/Application Support/ClaudeCode/managed-mcp.json`. That file puts Claude Code into exclusive control. It is the whole set of servers anyone on the machine can run, and users cannot add their own, including through a project `.mcp.json` or the `--mcp-config` flag ([managed MCP documentation](https://code.claude.com/docs/en/managed-mcp#exclusive-control-with-managed-mcp-json)). `managed-settings.json` holds the policy layer around it, `allowManagedMcpServersOnly` and the `allowedMcpServers` allowlist.
 
@@ -100,27 +100,33 @@ Which tools a connected server may run is decided separately, by the default-den
 
 #### How `github` is restricted
 
-Three independent layers apply, so no single mistake opens the server up.
+Reads are broad, writes are narrow. Three layers apply, and the write path has to pass all three.
 
-1. **The endpoint is GitHub's read-only one.** The URL ends in `/readonly`, which GitHub honours server-side ([remote server documentation](https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md)). Every write is refused before our own policy is consulted.
-2. **The tool allowlist is read-only too**, and holds if the URL is ever changed back. It omits every write tool, the secret-scanning reads (they locate live secrets, which `CLAUDE.md` forbids reading), and the team and collaborator reads (personal data). See `is_allowed` in `mcp-policy-check.sh` for the current list.
-3. **The token is the engineer's own**, so GitHub applies that person's permissions on top. A fine-grained PAT restricted to the repositories they need bounds it further.
+1. **The tool allowlist** in `is_allowed` in `mcp-policy-check.sh` grants reads plus the issue and pull request writes, and nothing else. Omitted on purpose: merging and branch updates, all content writes (they belong in git under the bash policy), repository creation and deletion, workflow triggers, the secret-scanning reads (they locate live secrets, which `CLAUDE.md` forbids reading), and the team and collaborator reads (personal data).
+2. **The repository allowlist**, `GITHUB_REPOS` in the same hook, binds every write to named repositories, the way `ATLASSIAN_PROJECTS` binds the Jira writes. A write whose owner and repository are missing or unparseable is denied rather than passed through, so the layer fails closed. Reads are not bound by it, because the token's own repository selection already limits them.
+3. **The token is the engineer's own**, so GitHub applies that person's permissions on top, and a fine-grained PAT restricted to the repositories they need bounds it again.
+
+Branch protection rulesets and CODEOWNERS still hold server-side whatever the client does, which is what keeps an allowed pull request write from landing unreviewed.
 
 #### Per-engineer setup (once)
 
 The `Authorization` header in `managed-mcp.json` reads `Bearer ${GITHUB_MCP_PAT}` and Claude Code expands that from the engineer's environment at connection time, so no token is committed and no credential is shared between engineers ([per-user credentials](https://code.claude.com/docs/en/managed-mcp#authenticate-with-per-user-credentials)).
 
-1. Create a fine-grained PAT at https://github.com/settings/personal-access-tokens, scoped to only the repositories you need, with these repository permissions and nothing else. All are read. The allowlisted tools need no write permission anywhere.
+Tokens are per engineer rather than one shared token, so the GitHub audit log attributes each action to a person, revoking one affects one person, and each token reaches only the repositories that person works on. The cost is a token to create per engineer, and to recreate at expiry.
+
+1. Create a fine-grained PAT at https://github.com/settings/personal-access-tokens. Set **Resource owner** to the MHI organisation, not your personal account, or the token reaches only your own repositories. Depending on the organisation's token policy, an admin may have to approve it before it works, and again at renewal. Scope it to only the repositories you need, with these repository permissions and nothing else. All are read. The allowlisted tools need no write permission anywhere.
 
    | Permission | Covers |
    |---|---|
    | Contents: Read | File contents, repository tree, commits, branches, tags, releases, code and repository search |
-   | Issues: Read | Issue reads, issue search, labels |
-   | Pull requests: Read | Pull request reads and search |
+   | Issues: Read and write | Issue reads and search, labels, creating and updating issues, issue comments |
+   | Pull requests: Read and write | Pull request reads and search, opening and updating pull requests, review comments |
    | Actions: Read | Workflow runs and job logs |
    | Code scanning alerts: Read | Code scanning alert reads |
    | Dependabot alerts: Read | Dependabot alert reads |
    | Metadata: Read | Leave enabled, several endpoints need it |
+
+   Contents stays read. That is what keeps commits, branches and file changes out of the MCP path, so writes are limited to issues and pull request discussion.
 
    Permission names are from GitHub's [fine-grained token permissions reference](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens). Grant nothing beyond the table. A tool that needs a permission you have not granted fails on its own rather than degrading anything else, so add one only when a tool errors.
 
