@@ -1,0 +1,33 @@
+# Cases for mcp-policy-check.sh. Fields: name, expect (deny|allow|unset),
+# tool_name (the full mcp__<server>__<tool> name), input (the tool_input object).
+#
+# The hook emits an explicit allow as well as an explicit deny, so a permitted tool
+# expects "allow" rather than "unset". A non-MCP tool_name exits 0 with no decision,
+# which the runner reports as "unset".
+#
+# --- server scoping ---------------------------------------------------------
+{"name":"non-MCP tool passes through untouched","expect":"unset","tool_name":"Bash","input":{"command":"git status"}}
+{"name":"unknown server denied (default-deny per server)","expect":"deny","tool_name":"mcp__notaserver__get_me","input":{}}
+{"name":"malformed tool name denied","expect":"deny","tool_name":"mcp__github","input":{}}
+# --- github reads -----------------------------------------------------------
+{"name":"github get_me allowed, names no repository","expect":"allow","tool_name":"mcp__github__get_me","input":{}}
+{"name":"github get_file_contents allowed, reads are not repo-scoped","expect":"allow","tool_name":"mcp__github__get_file_contents","input":{"owner":"SomeoneElse","repo":"unrelated","path":"README.md"}}
+{"name":"github secret scanning read denied though GitHub would serve it","expect":"deny","tool_name":"mcp__github__list_secret_scanning_alerts","input":{"owner":"MentalHealthInnovations","repo":"AI_Technical_Controls"}}
+{"name":"github collaborator read denied as personal data","expect":"deny","tool_name":"mcp__github__list_repository_collaborators","input":{"owner":"MentalHealthInnovations","repo":"AI_Technical_Controls"}}
+# --- github writes omitted from the tool allowlist --------------------------
+{"name":"github merge denied even in an allowlisted repo","expect":"deny","tool_name":"mcp__github__merge_pull_request","input":{"owner":"MentalHealthInnovations","repo":"AI_Technical_Controls","pullNumber":1}}
+{"name":"github content write denied even in an allowlisted repo","expect":"deny","tool_name":"mcp__github__create_or_update_file","input":{"owner":"MentalHealthInnovations","repo":"AI_Technical_Controls","path":"x.txt","message":"m","content":"y"}}
+{"name":"github repository deletion denied","expect":"deny","tool_name":"mcp__github__delete_repository","input":{"owner":"MentalHealthInnovations","repo":"AI_Technical_Controls"}}
+# --- github writes bound to GITHUB_REPOS ------------------------------------
+{"name":"github issue comment allowed in an allowlisted repo","expect":"allow","tool_name":"mcp__github__add_issue_comment","input":{"owner":"MentalHealthInnovations","repo":"AI_Technical_Controls","issue_number":1,"body":"b"}}
+{"name":"github issue comment allowed case-insensitively","expect":"allow","tool_name":"mcp__github__add_issue_comment","input":{"owner":"mentalhealthinnovations","repo":"ai_technical_controls","issue_number":1,"body":"b"}}
+{"name":"github issue comment denied outside GITHUB_REPOS","expect":"deny","tool_name":"mcp__github__add_issue_comment","input":{"owner":"MentalHealthInnovations","repo":"not-a-real-repo","issue_number":1,"body":"b"}}
+{"name":"github issue comment denied for another owner's same-named repo","expect":"deny","tool_name":"mcp__github__add_issue_comment","input":{"owner":"Attacker","repo":"AI_Technical_Controls","issue_number":1,"body":"b"}}
+{"name":"github issue write denied with no owner or repo (scope fails closed)","expect":"deny","tool_name":"mcp__github__issue_write","input":{"title":"t"}}
+{"name":"github issue write denied with an empty repo","expect":"deny","tool_name":"mcp__github__issue_write","input":{"owner":"MentalHealthInnovations","repo":"","title":"t"}}
+{"name":"github pull request write allowed in an allowlisted repo","expect":"allow","tool_name":"mcp__github__create_pull_request","input":{"owner":"MentalHealthInnovations","repo":"AI_Technical_Controls","title":"t","head":"h","base":"main"}}
+{"name":"github review write denied outside GITHUB_REPOS","expect":"deny","tool_name":"mcp__github__pull_request_review_write","input":{"owner":"MentalHealthInnovations","repo":"not-a-real-repo","pullNumber":1}}
+# --- atlassian must be unaffected by the github additions -------------------
+{"name":"atlassian read allowed in an allowlisted project","expect":"allow","tool_name":"mcp__atlassian__getJiraIssue","input":{"issueIdOrKey":"PLAN-1"}}
+{"name":"atlassian read denied outside ATLASSIAN_PROJECTS","expect":"deny","tool_name":"mcp__atlassian__getJiraIssue","input":{"issueIdOrKey":"VST-1"}}
+{"name":"atlassian tool not on the allowlist denied","expect":"deny","tool_name":"mcp__atlassian__search","input":{"query":"x"}}

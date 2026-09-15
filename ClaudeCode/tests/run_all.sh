@@ -15,6 +15,7 @@ cd "$repo_root" || exit 1
 declare -a suites=(
   "pii-path-policy-check.sh|pii-path-policy.jsonl"
   "pii-content-sniff.sh|pii-content-sniff.jsonl"
+  "mcp-policy-check.sh|mcp-policy.jsonl"
 )
 
 overall_fail=0
