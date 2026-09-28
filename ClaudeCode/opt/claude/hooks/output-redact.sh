@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # PostToolUse hook — redacts secrets from tool output before they reach Claude.
 #
-# Registered for Bash, Read, and WebFetch. Scans tool_response for secret patterns
-# (defined in lib/redact.sh) and replaces each match with [REDACTED] in-place,
-# then returns the sanitised content via decision:block so Claude never sees the
-# raw value.
+# Registered for Bash, Read, WebFetch and every MCP tool (matcher mcp__.*). Scans
+# tool_response for secret patterns (defined in lib/redact.sh) and replaces each
+# match with [REDACTED] in-place, then returns the sanitised content via
+# decision:block so Claude never sees the raw value.
 #
 # decision:block is the correct mechanism: it prevents the tool output from
 # entering Claude's context window. The reason field carries the sanitised text
@@ -36,8 +36,14 @@ payload="$(cat)"
 #   Bash:     .tool_response.stdout (primary output)
 #   Read:     .tool_response.content (string or [{type,text}] array)
 #   WebFetch: .tool_response.content (string)
+#   MCP:      shape varies by server (a content array, an object holding one, or a
+#             bare string), so every string anywhere under tool_response is taken.
+#             That over-collects field names such as "text", which is harmless, and
+#             cannot miss a value because of an unexpected wrapper.
 raw_output="$(printf '%s' "$payload" | jq -r '
-  if .tool_response.stdout? and (.tool_response.stdout | type) == "string" then
+  if ((.tool_name // "") | startswith("mcp__")) then
+    [.tool_response | .. | strings] | join("\n")
+  elif .tool_response.stdout? and (.tool_response.stdout | type) == "string" then
     .tool_response.stdout
   elif .tool_response.content? and (.tool_response.content | type) == "array" then
     [.tool_response.content[] | select(.type == "text") | .text] | join("\n")

@@ -16,6 +16,7 @@ declare -a suites=(
   "pii-path-policy-check.sh|pii-path-policy.jsonl"
   "pii-content-sniff.sh|pii-content-sniff.jsonl"
   "mcp-policy-check.sh|mcp-policy.jsonl"
+  "output-redact.sh|output-redact.jsonl"
 )
 
 overall_fail=0

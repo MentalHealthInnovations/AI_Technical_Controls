@@ -102,11 +102,13 @@ Which tools a connected server may run is decided separately, by the default-den
 
 Reads are broad, writes are narrow. Three layers apply, and the write path has to pass all three.
 
-1. **The tool allowlist** in `is_allowed` in `mcp-policy-check.sh` grants reads plus the issue and pull request writes, and nothing else. Omitted on purpose: merging and branch updates, all content writes (they belong in git under the bash policy), repository creation and deletion, workflow triggers, the secret-scanning reads (they locate live secrets, which `CLAUDE.md` forbids reading), and the team and collaborator reads (personal data).
+1. **The tool allowlist** in `is_allowed` in `mcp-policy-check.sh` grants reads plus the issue and pull request writes, and nothing else. Omitted on purpose: merging and branch updates, all content writes (they belong in git under the bash policy), repository creation and deletion, workflow triggers, the secret-scanning reads (they locate live secrets, which `CLAUDE.md` forbids reading), and the team and collaborator reads (personal data). Two granted tools carry a further check in the same hook. A pull request review whose event is `APPROVE` is denied, because approving is a person's decision, and a file read runs its path through the PII path policy the Read tool answers to.
 2. **The repository allowlist**, `GITHUB_REPOS` in the same hook, binds every write to named repositories, the way `ATLASSIAN_PROJECTS` binds the Jira writes. A write whose owner and repository are missing or unparseable is denied rather than passed through, so the layer fails closed. Reads are not bound by it, because the token's own repository selection already limits them.
 3. **The token is the engineer's own**, so GitHub applies that person's permissions on top, and a fine-grained PAT restricted to the repositories they need bounds it again.
 
 Branch protection rulesets and CODEOWNERS still hold server-side whatever the client does, which is what keeps an allowed pull request write from landing unreviewed.
+
+The server registers only the toolsets named in the `X-MCP-Toolsets` header in `managed-mcp.json`, so a tool outside them fails as not found before the hook sees it. The header, not the hook, decides what loads, and an unknown toolset name is ignored without error ([remote server documentation](https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md)), so after changing it check that `/mcp` lists the tools you expect. Everything a github tool returns passes through `output-redact.sh` before it reaches the model, the same as Bash and Read output.
 
 #### Per-engineer setup (once)
 
@@ -114,7 +116,7 @@ The `Authorization` header in `managed-mcp.json` reads `Bearer ${GITHUB_MCP_PAT}
 
 Tokens are per engineer rather than one shared token, so the GitHub audit log attributes each action to a person, revoking one affects one person, and each token reaches only the repositories that person works on. The cost is a token to create per engineer, and to recreate at expiry.
 
-1. Create a fine-grained PAT at https://github.com/settings/personal-access-tokens. Set **Resource owner** to the MHI organisation, not your personal account, or the token reaches only your own repositories. Depending on the organisation's token policy, an admin may have to approve it before it works, and again at renewal. Scope it to only the repositories you need, with these repository permissions and nothing else. All are read. The allowlisted tools need no write permission anywhere.
+1. Create a fine-grained PAT at https://github.com/settings/personal-access-tokens. Set **Resource owner** to the MHI organisation, not your personal account, or the token reaches only your own repositories. Depending on the organisation's token policy, an admin may have to approve it before it works, and again at renewal. Scope it to only the repositories you need, with these repository permissions and nothing else. Issues and pull requests take write, for the issue, comment and pull request tools the allowlist grants. Everything else is read.
 
    | Permission | Covers |
    |---|---|
@@ -142,11 +144,11 @@ Tokens are per engineer rather than one shared token, so the GitHub audit log at
    export GITHUB_MCP_PAT="$(security find-generic-password -a "$USER" -s github-mcp-pat -w)"
    ```
 
-4. Run `update_ai_governance`, then check `/mcp` shows `github` as connected.
+4. Run `update_ai_governance`, start a new Claude Code session, and check `/mcp` shows `github` as connected. A session that was already open when the server definition landed does not pick it up.
 
 Revoke your own token at https://github.com/settings/personal-access-tokens, which cuts off nobody else.
 
-If `claude mcp list` does not show `github`, the deployed `managed-mcp.json` is stale, so run `update_ai_governance`. If it is listed but reports a missing variable, `GITHUB_MCP_PAT` is not set in the environment Claude Code started from. An unset variable is passed through as the literal `${GITHUB_MCP_PAT}` rather than failing at load ([variable expansion](https://code.claude.com/docs/en/mcp#environment-variable-expansion-in-mcp-json)). For the `atlassian` connection flow, see [MCP server operational notes → Atlassian Remote MCP server](#atlassian-remote-mcp-server).
+If `claude mcp list` does not show `github`, the deployed `managed-mcp.json` is stale, so run `update_ai_governance`. If it is listed but reports a missing variable, `GITHUB_MCP_PAT` is not set in the environment Claude Code started from. An unset variable is passed through as the literal `${GITHUB_MCP_PAT}` rather than failing at load ([variable expansion](https://code.claude.com/docs/en/mcp#environment-variable-expansion-in-mcp-json)). With the token wrong or expired, `/mcp` shows `github` as failed with the HTTP status GitHub returned. Because the credential is a configured header, Claude Code reports that failure rather than offering an OAuth sign-in in its place ([remote server authentication](https://code.claude.com/docs/en/mcp#authenticate-with-remote-mcp-servers)). For the `atlassian` connection flow, see [MCP server operational notes → Atlassian Remote MCP server](#atlassian-remote-mcp-server).
 
 ## Hooks
 
@@ -160,16 +162,16 @@ Two roles. **Policy** hooks make allow/deny decisions, and **audit** hooks obser
 | `webfetch-policy-check.sh` | policy | `PreToolUse` / WebFetch |
 | `pii-path-policy-check.sh` | policy | `PreToolUse` / Read, Edit, Write, MultiEdit |
 | `pii-content-sniff.sh` | policy | `PreToolUse` / Read, Edit, Write, MultiEdit |
-| `output-redact.sh` | policy | `PostToolUse` / Bash, Read, WebFetch |
+| `output-redact.sh` | policy | `PostToolUse` / Bash, Read, WebFetch, MCP tools |
 | `tool-audit.sh` | audit | `PreToolUse` / Edit, Write, Task, SlashCommand, Read |
 | `prompt-submit.sh` | audit | `UserPromptSubmit` |
 | `session-audit.sh` | audit | `SessionStart`, `Stop`, `SessionEnd` |
 
 - **`bash-policy-check.sh`** enforces policy beyond glob matching, catching obfuscation and compound expressions that would bypass simple deny patterns.
 - **`webfetch-policy-check.sh`** enforces the domain allowlist.
-- **`pii-path-policy-check.sh`** is a deterministic denylist for file paths that suggest PII content: data exports (`*-export.csv`, `members.xlsx`), record dumps (`users.sql`, `customers.json`), and files inside data folders (`referrals/`, `exports/`, `dumps/`, `pii/`, `dsar/`). Matched case-insensitively against the basename and any parent directory segment. It fires on any tool whose `tool_input` carries a `file_path` (Read, Edit, Write, MultiEdit), so the agent cannot create a PII-named file via Write or Edit either. See [CLAUDE.md](ClaudeCode/CLAUDE.md) for the agent-behaviour layer that handles content discovered after a read.
+- **`pii-path-policy-check.sh`** is a deterministic denylist for file paths that suggest PII content: data exports (`*-export.csv`, `members.xlsx`), record dumps (`users.sql`, `customers.json`), and files inside data folders (`referrals/`, `exports/`, `dumps/`, `pii/`, `dsar/`). Matched case-insensitively against the basename and any parent directory segment. It fires on any tool whose `tool_input` carries a `file_path` (Read, Edit, Write, MultiEdit), so the agent cannot create a PII-named file via Write or Edit either. The same hook decides the path of a GitHub MCP file read, handed to it by `mcp-policy-check.sh`. See [CLAUDE.md](ClaudeCode/CLAUDE.md) for the agent-behaviour layer that handles content discovered after a read.
 - **`pii-content-sniff.sh`** is the content-level fallback for misnamed files. On Read it scans the first 64 KiB of the on-disk file. On Write, Edit, and MultiEdit it scans the inline `content` / `new_string` / `edits[].new_string` payload being written, because nothing is on disk yet for those tools. It looks for emails, UK postcodes, UK phone numbers, UK National Insurance numbers, IBANs, dates of birth, and grouped 16-digit card-shaped sequences, and denies the operation when at least 3 distinct categories appear or any single high-confidence pattern hits 10 or more times. On Read, known binary extensions (xlsx, sqlite, png, and so on) carrying a NUL byte in the first KiB are skipped, because the path-policy hook owns those by name. A NUL byte on its own, with no binary extension, does not trigger the skip, so a text file cannot dodge scanning by starting with one. Patterns, thresholds, and the counting logic are shared with `pii-staged-scan.sh` via `pii-patterns.sh`.
-- **`output-redact.sh`** scans tool output for secrets. On match, the result is blocked before entering Claude's context. The UI transcript may still show the raw output, but Claude cannot read or act on it. Patterns (defined in `lib/redact.sh`): PEM blocks, AWS keys, GitHub PATs (classic and fine-grained), `sk-` keys, Slack tokens, JWTs, Bearer headers, generic `key=value` / `password=value` assignments, connection strings, and Stripe/Twilio/SendGrid keys.
+- **`output-redact.sh`** scans tool output for secrets, including everything an MCP tool returns. On match, the result is blocked before entering Claude's context. The UI transcript may still show the raw output, but Claude cannot read or act on it. Patterns (defined in `lib/redact.sh`): PEM blocks, AWS keys, GitHub PATs (classic and fine-grained), `sk-` keys, Slack tokens, JWTs, Bearer headers, generic `key=value` / `password=value` assignments, connection strings, and Stripe/Twilio/SendGrid keys.
 - **`tool-audit.sh`** is a pure observer. It logs file paths and sizes for Edit/Write, subagent type and prompt length for Task, the command string for SlashCommand, and file path / offset / limit for Read. Never blocks.
 - **`prompt-submit.sh`** captures every prompt the user submits. The prompt text is passed through the same redaction patterns as tool output, so credentials pasted into prompts are stripped before they reach the audit log. The list of patterns that fired is recorded so an analyst can see *that* a secret was present without storing it.
 - **`session-audit.sh`** records session start (with source: `startup` / `resume` / `clear` / `compact`), `Stop` events, and `SessionEnd` reasons. Lets you reconstruct a per-session timeline by filtering the JSONL trail on `session_id`.

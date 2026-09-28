@@ -25,6 +25,12 @@ audit_init "mcp-policy"
 # because the call denies either way. So a tool that should work but reports
 # not_in_allowlist means the name here is wrong, and `/mcp` on a connected session
 # lists the real ones.
+#
+# A github tool also has to sit in a toolset named by the X-MCP-Toolsets header in
+# managed-mcp.json, or the server never registers it and the call fails as tool not
+# found before this hook sees it. That header decides what loads; this list decides
+# what may run.
+#
 # Tools that write to a repository, listed once because two places need them: is_allowed
 # grants them and repo_scope_ok binds them to GITHUB_REPOS. Keeping one list means a tool
 # cannot be granted here and left unscoped there.
@@ -67,6 +73,10 @@ is_allowed() {
       #     and the first needs an organisation-level permission nobody grants.
       #   The notification reads, discussions, gists, projects and search_orgs, because
       #     nothing needs them yet. Add on request.
+      #
+      # Two granted tools carry a further check below. pull_request_review_write is
+      # denied when its event is APPROVE (review_event_ok), and get_file_contents runs
+      # its path through the PII path policy (path_policy_ok).
       allowed="get_me get_file_contents get_repository_tree \
                get_commit list_commits search_commits \
                list_branches list_tags get_tag \
@@ -172,7 +182,7 @@ jql_scope_ok() {
 # tools (search_code, search_repositories, get_me) name no repository at all.
 GITHUB_REPOS="MentalHealthInnovations/AI_Technical_Controls"
 
-# repo_allowed <owner> <repo> — true iff owner/repo (any case) is in GITHUB_REPOS.
+# repo_allowed <owner> <repo>. True iff owner/repo (any case) is in GITHUB_REPOS.
 repo_allowed() {
   local want r
   [[ -n "$1" && -n "$2" ]] || return 1
@@ -183,7 +193,7 @@ repo_allowed() {
   return 1
 }
 
-# repo_scope_ok <server> <tool> <payload> — true unless a github write names a
+# repo_scope_ok <server> <tool> <payload>. True unless a github write names a
 # repository outside GITHUB_REPOS. Only the github server is repository-scoped.
 # Each write branch ends in repo_allowed, so a call whose owner or repo is missing
 # or unparseable is denied rather than passed through.
@@ -198,6 +208,42 @@ repo_scope_ok() {
     return
   done
   return 0
+}
+
+# --- GitHub review events ----------------------------------------------------
+# review_event_ok <server> <tool> <payload>. True unless a github review write
+# carries event APPROVE. The tool's event enum is APPROVE, REQUEST_CHANGES and
+# COMMENT (github-mcp-server, pkg/github/pullrequests.go). An approval is the review
+# decision branch protection counts, so it stays with a person, whatever repository
+# the call names. Comments and change requests pass, and so does a call with no
+# event. The comparison folds case so a lower-case spelling cannot slip past.
+review_event_ok() {
+  local server="$1" tool="$2" pl="$3" event
+  [[ "$server" == github && "$tool" == pull_request_review_write ]] || return 0
+  event="$(printf '%s' "$pl" | jq -r '.tool_input.event // empty' | tr '[:lower:]' '[:upper:]')"
+  [[ "$event" != APPROVE ]]
+}
+
+# --- GitHub file reads -------------------------------------------------------
+# path_policy_ok <server> <tool> <payload>. True unless a github get_file_contents
+# names a path that pii-path-policy-check.sh would deny for the Read tool. The
+# server returns file content straight into context, past the Read tool's
+# permission rules and hooks, so the same name policy is applied here by handing
+# the path to that hook as a Read-shaped payload. The tool name is rewritten to
+# Read so the path hook applies its Read rules whatever it keys on; the path hook
+# writes its own audit line for that synthesised call, and this hook records the
+# real tool name with reason pii_path. A missing or failing path hook denies the
+# read, matching the rule that a missing policy hook blocks the operation.
+path_policy_ok() {
+  local server="$1" tool="$2" pl="$3" path out
+  [[ "$server" == github && "$tool" == get_file_contents ]] || return 0
+  path="$(printf '%s' "$pl" | jq -r '.tool_input.path // empty')"
+  [[ -n "$path" ]] || return 0
+  [[ -x "$HOOK_DIR/pii-path-policy-check.sh" ]] || return 1
+  out="$(printf '%s' "$pl" \
+        | jq -c --arg p "$path" '.tool_name = "Read" | .tool_input = {file_path: $p}' \
+        | "$HOOK_DIR/pii-path-policy-check.sh" 2>/dev/null)" || return 1
+  [[ "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null)" != deny ]]
 }
 
 # project_scope_ok <server> <tool> <payload> — true unless the call names a
@@ -274,9 +320,18 @@ if is_allowed "$server" "$tool"; then
   if ! project_scope_ok "$server" "$tool" "$payload"; then
     emit_deny "project_not_in_allowlist" "Jira project not in the policy allowlist for this server"
   fi
+  # A pull request approval stays with a person. Checked before the repository
+  # scope so the deny reason names this layer even for an out-of-scope repository.
+  if ! review_event_ok "$server" "$tool" "$payload"; then
+    emit_deny "review_approve_blocked" "Approving a pull request is reserved for a person. Use event COMMENT or REQUEST_CHANGES"
+  fi
   # And scope github writes to GITHUB_REPOS.
   if ! repo_scope_ok "$server" "$tool" "$payload"; then
     emit_deny "repo_not_in_allowlist" "GitHub repository not in the policy allowlist for this server"
+  fi
+  # A github file read answers to the same path policy as the Read tool.
+  if ! path_policy_ok "$server" "$tool" "$payload"; then
+    emit_deny "pii_path" "File path matches the PII path policy, the same rule the Read tool applies"
   fi
   audit_emit "$payload" allow tool_name "$tool_name" server "$server" tool "$tool"
   echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}'

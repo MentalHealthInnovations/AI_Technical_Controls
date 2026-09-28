@@ -1,0 +1,22 @@
+# Cases for output-redact.sh, a PostToolUse hook. Fields: name, expect ("block" when the
+# hook rewrites the output, "unset" when it lets it through), tool_name, input (the
+# tool_input object), response (the tool_response, in whatever shape the tool produces).
+#
+# The patterns themselves are covered by cases/redact.jsonl against lib/redact.sh. These
+# cases cover the hook's plumbing: which tools it scans and which response shapes it can
+# read. The MCP shapes are the plausible ones rather than a documented contract, and the
+# hook takes every string anywhere under tool_response for an mcp__ tool, so it holds
+# whichever the server sends. Test 152 in the guardrail skill proves the live shape.
+#
+# --- existing tools keep their shape-specific paths -------------------------
+{"name":"bash stdout with a GitHub PAT is blocked","expect":"block","tool_name":"Bash","input":{"command":"echo x"},"response":{"stdout":"ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789","stderr":""}}
+{"name":"bash stdout without secrets passes","expect":"unset","tool_name":"Bash","input":{"command":"echo x"},"response":{"stdout":"hello","stderr":""}}
+{"name":"read content array with a GitHub PAT is blocked","expect":"block","tool_name":"Read","input":{"file_path":"/repo/notes.txt"},"response":{"content":[{"type":"text","text":"ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"}]}}
+{"name":"webfetch string content with a PEM header is blocked","expect":"block","tool_name":"WebFetch","input":{"url":"https://example.com"},"response":{"content":"-----BEGIN RSA PRIVATE KEY-----"}}
+# --- MCP tools, any response shape -----------------------------------------
+{"name":"mcp content array with a GitHub PAT is blocked","expect":"block","tool_name":"mcp__github__get_file_contents","input":{"owner":"o","repo":"r","path":"p"},"response":{"content":[{"type":"text","text":"token: ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"}]}}
+{"name":"mcp top-level array with a GitHub PAT is blocked","expect":"block","tool_name":"mcp__github__get_file_contents","input":{"owner":"o","repo":"r","path":"p"},"response":[{"type":"text","text":"ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"}]}
+{"name":"mcp bare string with a GitHub PAT is blocked","expect":"block","tool_name":"mcp__github__get_file_contents","input":{"owner":"o","repo":"r","path":"p"},"response":"ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"}
+{"name":"mcp nested object with a PEM header is blocked","expect":"block","tool_name":"mcp__atlassian__getJiraIssue","input":{"issueIdOrKey":"PLAN-1"},"response":{"structuredContent":{"fields":{"description":"-----BEGIN RSA PRIVATE KEY-----"}}}}
+{"name":"mcp clean content passes","expect":"unset","tool_name":"mcp__github__get_file_contents","input":{"owner":"o","repo":"r","path":"p"},"response":{"content":[{"type":"text","text":"# README\nplain prose about the project"}]}}
+{"name":"mcp null response passes","expect":"unset","tool_name":"mcp__github__get_me","input":{},"response":null}
