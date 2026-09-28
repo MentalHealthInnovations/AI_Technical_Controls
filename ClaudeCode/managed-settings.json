@@ -1,7 +1,7 @@
 {
   "allowedChannelPlugins": [],
   "allowedHttpHookUrls": [],
-  "_comment_allowedMcpServers": "This list decides which servers may connect. Which of a connected server's tools may run is a separate, default-deny allowlist in /opt/claude/hooks/mcp-policy-check.sh (its `is_allowed` function), kept there because that hook is its only consumer. Entries match by URL rather than by name, because a `serverName` entry counts only while the list holds no `serverUrl` entry, so a name-matched server would stop being allowed the moment any URL entry is added, and would also match an impostor server registered under the same name. Servers defined in managed-mcp.json skip this list entirely unless their definition uses ${VAR} expansion. The github entry does use it, for the per-user token, so the URL entry below is what admits it.",
+  "_comment_allowedMcpServers": "This list decides which servers may connect. Which of a connected server's tools may run is a separate, default-deny allowlist in /opt/claude/hooks/mcp-policy-check.sh (its `is_allowed` function), kept there because that hook is its only consumer. Entries match by URL rather than by name, because a `serverName` entry counts only while the list holds no `serverUrl` entry, so a name-matched server would stop being allowed the moment any URL entry is added, and would also match an impostor server registered under the same name. Servers defined in managed-mcp.json skip this list entirely unless their definition uses ${VAR} expansion, a rule that dates from Claude Code v2.1.259 (https://code.claude.com/docs/en/managed-mcp#how-a-server-is-evaluated). The github entry does use it, for the per-user token, so the URL entry below is what admits it.",
   "allowedMcpServers": [{"serverUrl": "https://mcp.atlassian.com/*"}, {"serverUrl": "https://api.githubcopilot.com/*"}],
   "allowManagedHooksOnly": true,
   "allowManagedMcpServersOnly": true,
@@ -29,7 +29,7 @@
     "additionalDirectories": [],
     "defaultMode": "plan",
     "disableBypassPermissionsMode": "disable",
-    "_comment_sensitiveNameGlobs": "These name rules are anchored on separators rather than written as substring globs. A substring glob matched the keyword anywhere in the path, blocking ordinary source and prose files (secretsmanager.tf, SecretsProvider.java, tokenizer.py), and a managed deny cannot carry an exception. The anchored forms match how credential files are named (secrets.yaml, prod-secrets.json, db_secret.txt, db.secret.yaml, api.credentials). Read and Edit denies merge into the sandbox filesystem boundary, so they reach Bash as well as the file tools. Max Levine accepted the gaps that follow, on the basis that name anchoring is best-effort. A keyword with trailing text and no separator (aws_credentials_backup.txt) is not matched. And 'token' carries only the bare name and the suffixes -token, _token and .token, because token.* and tokens.* collide with frontend design-token files, which leaves api-token.json and github_token.txt readable. The compensating control is output-redact.sh, registered for Read as well as Bash, so it rewrites matching values before they reach the model. Its coverage is per pattern rather than universal. It rewrites the branded formats (JWT, GitHub PAT, Slack, Stripe, AWS key id, PEM) and the key names in __REDACT_KEY_PREFIX, so an opaque value under an unlisted key name survives. Do not widen these globs on the assumption that redaction catches everything.",
+    "_comment_sensitiveNameGlobs": "These name rules are anchored on separators rather than written as substring globs. A substring glob matched the keyword anywhere in the path, blocking ordinary source and prose files (secretsmanager.tf, SecretsProvider.java, tokenizer.py), and a managed deny cannot carry an exception. The anchored forms match how credential files are named (secrets.yaml, prod-secrets.json, db_secret.txt, db.secret.yaml, api.credentials). Read and Edit denies merge into the sandbox filesystem boundary, so they reach Bash as well as the file tools. Max Levine accepted the gaps that follow, on the basis that name anchoring is best-effort. A keyword with trailing text and no separator (aws_credentials_backup.txt) is not matched. And 'token' carries only the bare name and the suffixes -token, _token and .token, because token.* and tokens.* collide with frontend design-token files, which leaves api-token.json and github_token.txt readable. The compensating control is output-redact.sh, registered for Read and MCP tool output as well as Bash, so it rewrites matching values before they reach the model. Its coverage is per pattern rather than universal. It rewrites the branded formats (JWT, GitHub PAT, Slack, Stripe, AWS key id, PEM) and the key names in __REDACT_KEY_PREFIX, so an opaque value under an unlisted key name survives. Do not widen these globs on the assumption that redaction catches everything.",
     "deny": [
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",
@@ -395,7 +395,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash|Read|WebFetch",
+        "matcher": "Bash|Read|WebFetch|mcp__.*",
         "hooks": [
           {
             "type": "command",

@@ -27,6 +27,18 @@
 {"name":"github issue write denied with an empty repo","expect":"deny","tool_name":"mcp__github__issue_write","input":{"owner":"MentalHealthInnovations","repo":"","title":"t"}}
 {"name":"github pull request write allowed in an allowlisted repo","expect":"allow","tool_name":"mcp__github__create_pull_request","input":{"owner":"MentalHealthInnovations","repo":"AI_Technical_Controls","title":"t","head":"h","base":"main"}}
 {"name":"github review write denied outside GITHUB_REPOS","expect":"deny","tool_name":"mcp__github__pull_request_review_write","input":{"owner":"MentalHealthInnovations","repo":"not-a-real-repo","pullNumber":1}}
+# --- github review approvals stay with a person -----------------------------
+{"name":"github review APPROVE denied in an allowlisted repo","expect":"deny","tool_name":"mcp__github__pull_request_review_write","input":{"owner":"MentalHealthInnovations","repo":"AI_Technical_Controls","pullNumber":1,"method":"create","event":"APPROVE"}}
+{"name":"github pending review submitted as approve denied, case folded","expect":"deny","tool_name":"mcp__github__pull_request_review_write","input":{"owner":"MentalHealthInnovations","repo":"AI_Technical_Controls","pullNumber":1,"method":"submit_pending","event":"approve"}}
+{"name":"github review APPROVE outside GITHUB_REPOS denied","expect":"deny","tool_name":"mcp__github__pull_request_review_write","input":{"owner":"MentalHealthInnovations","repo":"not-a-real-repo","pullNumber":1,"method":"create","event":"APPROVE"}}
+{"name":"github review COMMENT allowed in an allowlisted repo","expect":"allow","tool_name":"mcp__github__pull_request_review_write","input":{"owner":"MentalHealthInnovations","repo":"AI_Technical_Controls","pullNumber":1,"method":"create","event":"COMMENT","body":"b"}}
+{"name":"github review REQUEST_CHANGES allowed in an allowlisted repo","expect":"allow","tool_name":"mcp__github__pull_request_review_write","input":{"owner":"MentalHealthInnovations","repo":"AI_Technical_Controls","pullNumber":1,"method":"create","event":"REQUEST_CHANGES","body":"b"}}
+{"name":"github review thread resolve allowed with no event","expect":"allow","tool_name":"mcp__github__pull_request_review_write","input":{"owner":"MentalHealthInnovations","repo":"AI_Technical_Controls","pullNumber":1,"method":"resolve_thread","threadId":"t"}}
+# --- github file reads answer to the PII path policy ------------------------
+{"name":"github file read of a PII-named file denied","expect":"deny","tool_name":"mcp__github__get_file_contents","input":{"owner":"MentalHealthInnovations","repo":"AI_Technical_Controls","path":"fixtures/users.csv"}}
+{"name":"github file read under a PII directory denied","expect":"deny","tool_name":"mcp__github__get_file_contents","input":{"owner":"MentalHealthInnovations","repo":"AI_Technical_Controls","path":"data/referrals/2026-01.txt"}}
+{"name":"github file read of a record dump denied","expect":"deny","tool_name":"mcp__github__get_file_contents","input":{"owner":"MentalHealthInnovations","repo":"AI_Technical_Controls","path":"customers.json"}}
+{"name":"github file read with no path allowed","expect":"allow","tool_name":"mcp__github__get_file_contents","input":{"owner":"MentalHealthInnovations","repo":"AI_Technical_Controls"}}
 # --- atlassian must be unaffected by the github additions -------------------
 {"name":"atlassian read allowed in an allowlisted project","expect":"allow","tool_name":"mcp__atlassian__getJiraIssue","input":{"issueIdOrKey":"PLAN-1"}}
 {"name":"atlassian read denied outside ATLASSIAN_PROJECTS","expect":"deny","tool_name":"mcp__atlassian__getJiraIssue","input":{"issueIdOrKey":"VST-1"}}
