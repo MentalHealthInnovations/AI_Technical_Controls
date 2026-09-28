@@ -73,19 +73,19 @@ project_allowed() {
 # are scoped to ATLASSIAN_PROJECTS above. Keys are compared case-insensitively.
 # EDIT THIS LIST to change which Confluence spaces Claude Code may search.
 #
-# This list does NOT bound page-content reads. getConfluencePage,
+# This list does not bound page-content reads. getConfluencePage,
 # getConfluencePageDescendants, getConfluencePageFooterComments,
 # getConfluencePageInlineComments, and getConfluenceCommentChildren all key off an
-# opaque page/comment id with no space named in the request, so this PreToolUse hook
-# — which only ever sees the request, never the API response — cannot verify which
+# opaque page/comment id with no space named in the request. This PreToolUse hook
+# only ever sees the request, never the API response, so it cannot verify which
 # space that id belongs to. getPagesInConfluenceSpace has the same problem in the
-# other direction: Confluence's v2 "get pages in space" endpoint takes a numeric
+# other direction. Confluence's v2 "get pages in space" endpoint takes a numeric
 # space id, not the human-readable key on this list, and the hook cannot resolve a
 # numeric id to a key without calling Atlassian (the same failure mode
-# project_allowed already documents for a bare numeric Jira project id). All six of
-# those tools are therefore left off the allowlist entirely rather than scoped —
+# project_allowed already documents for a bare numeric Jira project id). Those
+# tools are therefore left off the allowlist entirely rather than scoped, and
 # adding a key here does not grant them access. getConfluenceSpaces is the one
-# exception: it takes no space parameter at all (a cross-space listing tool, like
+# exception. It takes no space parameter (a cross-space listing tool, like
 # getVisibleJiraProjects), so it is allowed unscoped rather than bound to this list.
 CONFLUENCE_SPACES="JD"
 
