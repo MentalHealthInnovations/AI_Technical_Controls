@@ -7,7 +7,11 @@
 # Case file format: one JSON object per line with fields:
 #   name      — short label
 #   input     — object passed as tool_input to the hook
-#   expect    — "deny", "allow", or "unset"
+#   expect    — "deny", "allow", or "unset" for a PreToolUse hook; "block" or
+#               "unset" for a PostToolUse hook, which answers with a top-level
+#               decision field
+#   response  — optional; passed as tool_response in whatever shape the tool
+#               produces (object, array or string), for PostToolUse hooks
 #   tool_name — optional; the hook's tool_name field (e.g. "Write", "Edit",
 #               "MultiEdit"). Omit for Read-shaped cases that only carry a
 #               file_path — that's how the payload has always been built, and
@@ -48,18 +52,22 @@ while IFS= read -r line; do
   expect=$(printf '%s' "$line" | jq -r '.expect')
   input=$(printf '%s' "$line" | jq -c '.input')
   tool_name=$(printf '%s' "$line" | jq -r '.tool_name // empty')
+  response=$(printf '%s' "$line" | jq -c 'if has("response") then .response else empty end')
 
   if [[ -n "$tool_name" ]]; then
     payload=$(jq -n --argjson i "$input" --arg tn "$tool_name" '{tool_name: $tn, tool_input: $i}')
   else
     payload=$(jq -n --argjson i "$input" '{tool_input: $i}')
   fi
+  if [[ -n "$response" ]]; then
+    payload=$(printf '%s' "$payload" | jq -c --argjson r "$response" '. + {tool_response: $r}')
+  fi
   out=$(printf '%s' "$payload" | "$hook" 2>/dev/null || true)
 
   if [[ -z "$out" ]]; then
     actual="unset"
   else
-    actual=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // "unset"' 2>/dev/null || echo "error")
+    actual=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // .decision // "unset"' 2>/dev/null || echo "error")
   fi
 
   total=$((total+1))
