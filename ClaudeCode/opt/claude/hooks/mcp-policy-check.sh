@@ -164,7 +164,7 @@ jql_scope_ok() {
 # owner/repo with no wildcards. EDIT THIS LIST to change where Claude Code may write. An
 # empty list denies every github write. Reads are not bound by it, because the token's
 # repository selection already limits them and several read tools name no repository.
-GITHUB_REPOS="MentalHealthInnovations/AI_Technical_Controls MentalHealthInnovations/common MentalHealthInnovations/mhi-infra MentalHealthInnovations/translation"
+GITHUB_REPOS="MentalHealthInnovations/AI_Technical_Controls MentalHealthInnovations/common MentalHealthInnovations/mhi-infra MentalHealthInnovations/translation MentalHealthInnovations/the-bench MentalHealthInnovations/shout_chat_app MentalHealthInnovations/scs-infrastructure"
 
 # repo_allowed <owner> <repo>. True iff owner/repo (any case) is in GITHUB_REPOS.
 repo_allowed() {
