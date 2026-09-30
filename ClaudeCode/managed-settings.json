@@ -211,8 +211,10 @@
     "allowUnsandboxedCommands": false,
 
     "filesystem": {
+      "_comment_ghConfig": "The Read(~/.config/gh/**) permission deny above merges into the sandbox read boundary, so on its own it stops the gh binary reading its config.yml and hosts.yml under sandboxed Bash. The ~/.config/gh entry in allowRead re-opens the directory for sandboxed commands only. The Read tool stays denied by the permission rule, and a command that names the path is denied by the gh_config_path pre-block in bash-policy-check.sh. Do not remove the entry without revisiting test 110 in the guardrail skill.",
       "allowRead": [
-        "."
+        ".",
+        "~/.config/gh"
       ],
       "allowWrite": [
         ".",
@@ -235,7 +237,6 @@
         "./.git/packed-refs",
         "./.git/packed-refs.lock"
       ],
-      "_comment_ghConfig": "~/.config/gh is deliberately absent from denyRead: the gh binary must read its own config.yml/hosts.yml to authenticate when run under sandboxed Bash. Claude-level access to those files remains blocked by the Read(~/.config/gh/**) permission deny above and by the gh_config_path pre-block in bash-policy-check.sh — do not re-add it here without revisiting both.",
       "denyRead": [
         "~/.ssh",
         "~/.aws",
