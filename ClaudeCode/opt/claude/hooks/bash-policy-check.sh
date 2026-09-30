@@ -156,6 +156,23 @@ if printf '%s' "$cmd" | grep -Eqi '^tfsec\b.*\s--update\b'; then
   emit_deny "tfsec_update" "tfsec --update blocked by policy"
 fi
 
+# pandoc's filter/engine flags execute external scripts or binaries as part of
+# conversion (--filter/--lua-filter run arbitrary Lua or executables; -F is the
+# short form of --filter; --pdf-engine invokes an external PDF toolchain). The
+# allowlist below only needs read-only text conversion, so block the flags that
+# turn pandoc into a general-purpose code-execution vector ahead of it.
+if printf '%s' "$cmd" | grep -Eqi '^pandoc\b.*\s(--filter|--lua-filter|-F|--pdf-engine)\b'; then
+  emit_deny "pandoc_filter" "pandoc --filter/--lua-filter/-F/--pdf-engine blocked by policy"
+fi
+
+# unzip without -l (list) or -p (extract to stdout) writes extracted files to
+# disk, which risks path-traversal or symlink entries from a crafted archive
+# landing outside the intended directory. The allowlist below only needs
+# read-only inspection, so block plain/disk extraction ahead of it.
+if printf '%s' "$cmd" | grep -Eqi '^unzip\b' && ! printf '%s' "$cmd" | grep -Eqi '^unzip\b.*\s-[a-zA-Z]*[lp]'; then
+  emit_deny "unzip_extract" "unzip requires -l or -p (read-only) under policy"
+fi
+
 # gh's config dir (~/.config/gh) is readable by the OS sandbox so the gh binary
 # can authenticate (see _comment_ghConfig in managed-settings.json). gh itself
 # never takes its config path as an argument, so any command text naming that
@@ -306,6 +323,15 @@ allowed_patterns=(
   "^terraform-docs\b"
   # gitleaks: scanner subcommands only. No `gitleaks generate` (writes config).
   "^gitleaks\s+(detect|protect|dir|version|help)\b"
+
+  # pandoc: read-only conversion to text-based formats only, for reading .docx/
+  # .odt/etc. contents. --filter/--lua-filter/-F/--pdf-engine are pre-blocked
+  # above so this entry cannot be used to launder arbitrary code execution.
+  "^pandoc\b.*\s(-t|--to)[= ](markdown|plain|gfm)\b"
+  # unzip: listing (-l) or stream-to-stdout (-p) only, so archive contents can
+  # be inspected without writing extracted files to disk. Plain/disk extraction
+  # is pre-blocked above.
+  "^unzip\b.*\s-[a-zA-Z]*[lp]"
 )
 
 # Split command on chain operators (&&, ||, ;, |) and check each segment individually.
