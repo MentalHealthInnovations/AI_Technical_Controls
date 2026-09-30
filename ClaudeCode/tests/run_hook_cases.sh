@@ -9,10 +9,9 @@
 #   input     — object passed as tool_input to the hook
 #   expect    — "deny", "allow", or "unset" for a PreToolUse hook; "block" or
 #               "unset" for a PostToolUse hook, which answers with a top-level
-#               decision field rather than a permissionDecision
-#   response  — optional; passed as tool_response, in whatever shape the tool
-#               produces (object, array or string). PostToolUse hooks read it;
-#               PreToolUse cases leave it out.
+#               decision field
+#   response  — optional; passed as tool_response in whatever shape the tool
+#               produces (object, array or string), for PostToolUse hooks
 #   tool_name — optional; the hook's tool_name field (e.g. "Write", "Edit",
 #               "MultiEdit"). Omit for Read-shaped cases that only carry a
 #               file_path — that's how the payload has always been built, and

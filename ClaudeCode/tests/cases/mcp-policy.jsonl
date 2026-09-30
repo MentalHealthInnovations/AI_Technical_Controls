@@ -21,6 +21,7 @@
 # --- github writes bound to GITHUB_REPOS ------------------------------------
 {"name":"github issue comment allowed in an allowlisted repo","expect":"allow","tool_name":"mcp__github__add_issue_comment","input":{"owner":"MentalHealthInnovations","repo":"AI_Technical_Controls","issue_number":1,"body":"b"}}
 {"name":"github issue comment allowed case-insensitively","expect":"allow","tool_name":"mcp__github__add_issue_comment","input":{"owner":"mentalhealthinnovations","repo":"ai_technical_controls","issue_number":1,"body":"b"}}
+{"name":"github issue comment allowed in another allowlisted repo","expect":"allow","tool_name":"mcp__github__add_issue_comment","input":{"owner":"MentalHealthInnovations","repo":"translation","issue_number":1,"body":"b"}}
 {"name":"github issue comment denied outside GITHUB_REPOS","expect":"deny","tool_name":"mcp__github__add_issue_comment","input":{"owner":"MentalHealthInnovations","repo":"not-a-real-repo","issue_number":1,"body":"b"}}
 {"name":"github issue comment denied for another owner's same-named repo","expect":"deny","tool_name":"mcp__github__add_issue_comment","input":{"owner":"Attacker","repo":"AI_Technical_Controls","issue_number":1,"body":"b"}}
 {"name":"github issue write denied with no owner or repo (scope fails closed)","expect":"deny","tool_name":"mcp__github__issue_write","input":{"title":"t"}}

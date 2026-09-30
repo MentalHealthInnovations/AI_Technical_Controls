@@ -21,19 +21,14 @@ audit_init "mcp-policy"
 # same way to GITHUB_REPOS by repo_scope_ok. Other state-changing tools stay omitted,
 # which denies them before the call reaches the server.
 #
-# A name that does not match the server's actual tool is inert rather than dangerous,
-# because the call denies either way. So a tool that should work but reports
-# not_in_allowlist means the name here is wrong, and `/mcp` on a connected session
-# lists the real ones.
+# A misspelt tool name is inert, because the call denies either way. A tool that should
+# work but reports not_in_allowlist has the wrong name here, and `/mcp` lists the real
+# ones. A github tool must also sit in a toolset named by X-MCP-Toolsets in
+# managed-mcp.json, or the server never registers it. The header decides what loads and
+# this list decides what may run.
 #
-# A github tool also has to sit in a toolset named by the X-MCP-Toolsets header in
-# managed-mcp.json, or the server never registers it and the call fails as tool not
-# found before this hook sees it. That header decides what loads; this list decides
-# what may run.
-#
-# Tools that write to a repository, listed once because two places need them: is_allowed
-# grants them and repo_scope_ok binds them to GITHUB_REPOS. Keeping one list means a tool
-# cannot be granted here and left unscoped there.
+# The github write tools, listed once so a tool cannot be granted in is_allowed and left
+# unscoped in repo_scope_ok.
 GITHUB_WRITE_TOOLS="add_issue_comment issue_write \
                     create_pull_request update_pull_request \
                     pull_request_review_write add_comment_to_pending_review \
@@ -52,31 +47,24 @@ is_allowed() {
                addCommentToJiraIssue addWorklogToJiraIssue createIssueLink"
       ;;
     github)
-      # Reads, plus the issue and pull request writes listed last. Those writes are bound
-      # to GITHUB_REPOS by repo_scope_ok below, the same way the Jira writes are bound to
-      # ATLASSIAN_PROJECTS, so a write outside the allowlisted repositories is denied
-      # even though the tool itself is allowed.
-      #
-      # Omitted deliberately, beyond the write tools listed:
+      # Reads, plus the issue and pull request writes, which repo_scope_ok binds to
+      # GITHUB_REPOS. Omitted on purpose:
       #   get_secret_scanning_alert and list_secret_scanning_alerts, because they locate
-      #     live secrets and can quote them, which CLAUDE.md forbids reading.
+      #     live secrets, which CLAUDE.md forbids reading.
       #   get_teams, get_team_members and list_repository_collaborators, because they
-      #     return personal data, covered by the same rule as the PII file hooks.
+      #     return personal data, the same rule as the PII file hooks.
       #   merge_pull_request and update_pull_request_branch, because landing or moving a
-      #     branch is a human decision, and branch protection should not be the only
-      #     thing standing in the way.
+      #     branch is a human decision.
       #   create_or_update_file, push_files, delete_file and create_branch, because
-      #     content writes belong in git under the bash policy, not here.
+      #     content writes belong in git under the bash policy.
       #   create_repository, delete_repository, fork_repository, actions_run_trigger,
       #     label_write and the governance writes, because none of them are review work.
-      #   list_issue_types and list_issue_fields, because MHI does not use issue types,
-      #     and the first needs an organisation-level permission nobody grants.
+      #   list_issue_types and list_issue_fields, because MHI does not use issue types
+      #     and the first needs an organisation permission nobody grants.
       #   The notification reads, discussions, gists, projects and search_orgs, because
-      #     nothing needs them yet. Add on request.
-      #
-      # Two granted tools carry a further check below. pull_request_review_write is
-      # denied when its event is APPROVE (review_event_ok), and get_file_contents runs
-      # its path through the PII path policy (path_policy_ok).
+      #     nothing needs them yet.
+      # pull_request_review_write is further checked by review_event_ok and
+      # get_file_contents by path_policy_ok, below.
       allowed="get_me get_file_contents get_repository_tree \
                get_commit list_commits search_commits \
                list_branches list_tags get_tag \
@@ -172,15 +160,11 @@ jql_scope_ok() {
 }
 
 # --- GitHub repository allowlist ---------------------------------------------
-# Every github write tool is bound to these repositories. EDIT THIS LIST to change
-# where Claude Code may write. An empty list denies every github write. Entries are
-# owner/repo, compared case-insensitively, with no wildcards, because an org-wide entry
-# would make the allowlist a formality.
-#
-# Reads are not bound by this list. The token carries its own repository selection, so
-# a read already cannot reach a repository the engineer did not grant, and several read
-# tools (search_code, search_repositories, get_me) name no repository at all.
-GITHUB_REPOS="MentalHealthInnovations/AI_Technical_Controls"
+# Every github write tool is bound to these repositories, compared case-insensitively as
+# owner/repo with no wildcards. EDIT THIS LIST to change where Claude Code may write. An
+# empty list denies every github write. Reads are not bound by it, because the token's
+# repository selection already limits them and several read tools name no repository.
+GITHUB_REPOS="MentalHealthInnovations/AI_Technical_Controls MentalHealthInnovations/common MentalHealthInnovations/mhi-infra MentalHealthInnovations/translation"
 
 # repo_allowed <owner> <repo>. True iff owner/repo (any case) is in GITHUB_REPOS.
 repo_allowed() {
@@ -211,12 +195,11 @@ repo_scope_ok() {
 }
 
 # --- GitHub review events ----------------------------------------------------
-# review_event_ok <server> <tool> <payload>. True unless a github review write
-# carries event APPROVE. The tool's event enum is APPROVE, REQUEST_CHANGES and
-# COMMENT (github-mcp-server, pkg/github/pullrequests.go). An approval is the review
-# decision branch protection counts, so it stays with a person, whatever repository
-# the call names. Comments and change requests pass, and so does a call with no
-# event. The comparison folds case so a lower-case spelling cannot slip past.
+# review_event_ok <server> <tool> <payload>. True unless a github review write carries
+# event APPROVE (the enum is APPROVE, REQUEST_CHANGES and COMMENT, per github-mcp-server
+# pkg/github/pullrequests.go). An approval is the review decision branch protection
+# counts, so it stays with a person whatever repository the call names. The comparison
+# folds case.
 review_event_ok() {
   local server="$1" tool="$2" pl="$3" event
   [[ "$server" == github && "$tool" == pull_request_review_write ]] || return 0
@@ -225,15 +208,12 @@ review_event_ok() {
 }
 
 # --- GitHub file reads -------------------------------------------------------
-# path_policy_ok <server> <tool> <payload>. True unless a github get_file_contents
-# names a path that pii-path-policy-check.sh would deny for the Read tool. The
-# server returns file content straight into context, past the Read tool's
-# permission rules and hooks, so the same name policy is applied here by handing
-# the path to that hook as a Read-shaped payload. The tool name is rewritten to
-# Read so the path hook applies its Read rules whatever it keys on; the path hook
-# writes its own audit line for that synthesised call, and this hook records the
-# real tool name with reason pii_path. A missing or failing path hook denies the
-# read, matching the rule that a missing policy hook blocks the operation.
+# path_policy_ok <server> <tool> <payload>. True unless a github get_file_contents names
+# a path that pii-path-policy-check.sh would deny for the Read tool. The server returns
+# file content straight into context, past the Read tool's rules, so the path is handed
+# to that hook as a Read-shaped payload (tool_name Read, so its Read rules apply whatever
+# it keys on). The path hook audits the synthesised call and this hook audits the real
+# tool name with reason pii_path. A missing or failing path hook denies the read.
 path_policy_ok() {
   local server="$1" tool="$2" pl="$3" path out
   [[ "$server" == github && "$tool" == get_file_contents ]] || return 0
