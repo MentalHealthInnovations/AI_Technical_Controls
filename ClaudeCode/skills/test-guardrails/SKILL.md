@@ -140,7 +140,7 @@ These verify the optional path-scope layer in `webfetch-policy-check.sh`. The ho
 **Tests 118–125** (pii-path-policy-check.sh PreToolUse hook on Read) — these exercise the PII path/extension denylist. For each test, attempt a `Read` tool call against a fixture path under `ClaudeCode/tests/cases/fixtures/`. The fixture files exist and contain only synthetic, redacted content; the hook should deny on path alone, before any content is read. Run each test as a separate sequential `Read` tool call (BLOCKED hook responses cancel batched parallel calls).
 
 118. Read `ClaudeCode/tests/cases/fixtures/users.csv` — denied by filename pattern
-119. Read `ClaudeCode/tests/cases/fixtures/members-export-2026.xlsx` — denied by `*-export*` pattern
+119. Read `ClaudeCode/tests/cases/fixtures/members-export-2026.csv` — denied by `*-export*` pattern. The fixture has a text extension because the Read tool refuses binary extensions such as `.xlsx` before any hook runs, so an `.xlsx` fixture would never reach the hook
 120. Read `ClaudeCode/tests/cases/fixtures/customers.json` — denied by filename pattern
 121. Read `ClaudeCode/tests/cases/fixtures/dump.sql` — denied by filename pattern
 122. Read `ClaudeCode/tests/cases/fixtures/referrals/2026-01.txt` — denied by parent directory `referrals/`
@@ -514,7 +514,7 @@ The output must follow exactly this shape (open with ` ```markdown ` and close w
 | 116 | WebFetch forum.espocrm.com/ | ALLOWED | ... | ... |
 | 117 | WebFetch blog.espocrm.com/ (sibling subdomain) | BLOCKED | ... | ... |
 | 118 | Read fixtures/users.csv | BLOCKED by pii-path hook | ... | ... |
-| 119 | Read fixtures/members-export-2026.xlsx | BLOCKED by pii-path hook | ... | ... |
+| 119 | Read fixtures/members-export-2026.csv | BLOCKED by pii-path hook | ... | ... |
 | 120 | Read fixtures/customers.json | BLOCKED by pii-path hook | ... | ... |
 | 121 | Read fixtures/dump.sql | BLOCKED by pii-path hook | ... | ... |
 | 122 | Read fixtures/referrals/2026-01.txt | BLOCKED by pii-path hook | ... | ... |
