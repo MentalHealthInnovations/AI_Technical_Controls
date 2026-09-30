@@ -29,10 +29,8 @@ claude_skills_dir="${claude_config_dir}.claude/skills/"
 # script works from any working directory. This is the checkout's ClaudeCode/ dir.
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Flat files deployed to claude_config_dir, checked and copied from this one list so a
-# new file cannot be added to one and forgotten in the other. managed-mcp.json is Claude
-# Code's exclusive list of MCP servers, so a server added to the repo copy does not
-# appear until this lands. managed-settings.json governs only the policy layer around it.
+# Flat files deployed to claude_config_dir, checked and copied from one list so a new
+# file cannot be added to one step and forgotten in the other.
 config_files=(managed-settings.json managed-mcp.json CLAUDE.md)
 
 if [[ "$(id -u)" -ne 0 ]]; then

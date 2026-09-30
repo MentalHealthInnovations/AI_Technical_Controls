@@ -102,21 +102,17 @@ Which tools a connected server may run is decided separately, by the default-den
 
 Reads are broad, writes are narrow. Three layers apply, and the write path has to pass all three.
 
-1. **The tool allowlist** in `is_allowed` in `mcp-policy-check.sh` grants reads plus the issue and pull request writes, and nothing else. Omitted on purpose: merging and branch updates, all content writes (they belong in git under the bash policy), repository creation and deletion, workflow triggers, the secret-scanning reads (they locate live secrets, which `CLAUDE.md` forbids reading), and the team and collaborator reads (personal data). Two granted tools carry a further check in the same hook. A pull request review whose event is `APPROVE` is denied, because approving is a person's decision, and a file read runs its path through the PII path policy the Read tool answers to.
-2. **The repository allowlist**, `GITHUB_REPOS` in the same hook, binds every write to named repositories, the way `ATLASSIAN_PROJECTS` binds the Jira writes. A write whose owner and repository are missing or unparseable is denied rather than passed through, so the layer fails closed. Reads are not bound by it, because the token's own repository selection already limits them.
+1. **The tool allowlist** in `is_allowed` in `mcp-policy-check.sh` grants reads plus the issue and pull request writes, and nothing else. The comment beside the list records each omitted tool and why. A pull request review whose event is `APPROVE` is denied, because approving is a person's decision, and a file read runs its path through the PII path policy the Read tool answers to.
+2. **The repository allowlist**, `GITHUB_REPOS` in the same hook, binds every write to named repositories, the way `ATLASSIAN_PROJECTS` binds the Jira writes. A write whose owner and repository are missing or unparseable is denied rather than passed through, so the layer fails closed. Reads are not bound by it, because the token's repository selection already limits them.
 3. **The token is the engineer's own**, so GitHub applies that person's permissions on top, and a fine-grained PAT restricted to the repositories they need bounds it again.
 
-Branch protection rulesets and CODEOWNERS still hold server-side whatever the client does, which is what keeps an allowed pull request write from landing unreviewed.
-
-The server registers only the toolsets named in the `X-MCP-Toolsets` header in `managed-mcp.json`, so a tool outside them fails as not found before the hook sees it. The header, not the hook, decides what loads, and an unknown toolset name is ignored without error ([remote server documentation](https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md)), so after changing it check that `/mcp` lists the tools you expect. Everything a github tool returns passes through `output-redact.sh` before it reaches the model, the same as Bash and Read output.
+Branch protection rulesets and CODEOWNERS still hold server-side whatever the client does, which is what keeps an allowed pull request write from landing unreviewed. The server registers only the toolsets named in the `X-MCP-Toolsets` header in `managed-mcp.json`, and an unknown toolset name is ignored without error ([remote server documentation](https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md)), so after changing it check that `/mcp` lists the tools you expect. Everything a github tool returns passes through `output-redact.sh` before it reaches the model.
 
 #### Per-engineer setup (once)
 
-The `Authorization` header in `managed-mcp.json` reads `Bearer ${GITHUB_MCP_PAT}` and Claude Code expands that from the engineer's environment at connection time, so no token is committed and no credential is shared between engineers ([per-user credentials](https://code.claude.com/docs/en/managed-mcp#authenticate-with-per-user-credentials)).
+The `Authorization` header in `managed-mcp.json` reads `Bearer ${GITHUB_MCP_PAT}`, which Claude Code expands from the engineer's environment at connection time ([per-user credentials](https://code.claude.com/docs/en/managed-mcp#authenticate-with-per-user-credentials)). Each engineer holds their own token, so nothing is committed or shared, the GitHub audit log names a person, revoking one affects one person, and each token reaches only that person's repositories.
 
-Tokens are per engineer rather than one shared token, so the GitHub audit log attributes each action to a person, revoking one affects one person, and each token reaches only the repositories that person works on. The cost is a token to create per engineer, and to recreate at expiry.
-
-1. Create a fine-grained PAT at https://github.com/settings/personal-access-tokens. Set **Resource owner** to the MHI organisation, not your personal account, or the token reaches only your own repositories. Depending on the organisation's token policy, an admin may have to approve it before it works, and again at renewal. Scope it to only the repositories you need, with these repository permissions and nothing else. Issues and pull requests take write, for the issue, comment and pull request tools the allowlist grants. Everything else is read.
+1. Create a fine-grained PAT at https://github.com/settings/personal-access-tokens. Set **Resource owner** to the MHI organisation, or the token reaches only your personal repositories. An administrator may have to approve it before it works, and again at renewal. Scope it to the repositories you need, with these permissions and nothing else. Issues and pull requests take write, for the issue, comment and pull request tools the allowlist grants. Everything else is read.
 
    | Permission | Covers |
    |---|---|
@@ -128,9 +124,7 @@ Tokens are per engineer rather than one shared token, so the GitHub audit log at
    | Dependabot alerts: Read | Dependabot alert reads |
    | Metadata: Read | Leave enabled, several endpoints need it |
 
-   Contents stays read. That is what keeps commits, branches and file changes out of the MCP path, so writes are limited to issues and pull request discussion.
-
-   Permission names are from GitHub's [fine-grained token permissions reference](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens). Grant nothing beyond the table. A tool that needs a permission you have not granted fails on its own rather than degrading anything else, so add one only when a tool errors.
+   Contents stays read, which keeps commits, branches and file changes out of the MCP path. Permission names are from GitHub's [fine-grained token permissions reference](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens). A tool that needs a permission you have not granted fails on its own, so add one only when a tool errors.
 
 2. Put it in your login keychain. The command prompts for the value, so it stays out of shell history. Rerun it to replace a rotated token.
 
@@ -148,7 +142,7 @@ Tokens are per engineer rather than one shared token, so the GitHub audit log at
 
 Revoke your own token at https://github.com/settings/personal-access-tokens, which cuts off nobody else.
 
-If `claude mcp list` does not show `github`, the deployed `managed-mcp.json` is stale, so run `update_ai_governance`. If it is listed but reports a missing variable, `GITHUB_MCP_PAT` is not set in the environment Claude Code started from. An unset variable is passed through as the literal `${GITHUB_MCP_PAT}` rather than failing at load ([variable expansion](https://code.claude.com/docs/en/mcp#environment-variable-expansion-in-mcp-json)). With the token wrong or expired, `/mcp` shows `github` as failed with the HTTP status GitHub returned. Because the credential is a configured header, Claude Code reports that failure rather than offering an OAuth sign-in in its place ([remote server authentication](https://code.claude.com/docs/en/mcp#authenticate-with-remote-mcp-servers)). For the `atlassian` connection flow, see [MCP server operational notes → Atlassian Remote MCP server](#atlassian-remote-mcp-server).
+If `claude mcp list` does not show `github`, the deployed `managed-mcp.json` is stale, so run `update_ai_governance`. If it reports a missing variable, `GITHUB_MCP_PAT` is not set in the environment Claude Code started from, and the literal `${GITHUB_MCP_PAT}` is sent instead ([variable expansion](https://code.claude.com/docs/en/mcp#environment-variable-expansion-in-mcp-json)). With the token wrong or expired, `/mcp` shows `github` as failed with the HTTP status GitHub returned, rather than offering an OAuth sign-in ([remote server authentication](https://code.claude.com/docs/en/mcp#authenticate-with-remote-mcp-servers)). For the `atlassian` connection flow, see [MCP server operational notes → Atlassian Remote MCP server](#atlassian-remote-mcp-server).
 
 ## Hooks
 

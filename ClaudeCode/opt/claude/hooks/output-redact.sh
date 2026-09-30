@@ -36,10 +36,8 @@ payload="$(cat)"
 #   Bash:     .tool_response.stdout (primary output)
 #   Read:     .tool_response.content (string or [{type,text}] array)
 #   WebFetch: .tool_response.content (string)
-#   MCP:      shape varies by server (a content array, an object holding one, or a
-#             bare string), so every string anywhere under tool_response is taken.
-#             That over-collects field names such as "text", which is harmless, and
-#             cannot miss a value because of an unexpected wrapper.
+#   MCP:      shape varies by server, so every string anywhere under tool_response is
+#             taken. Field names such as "text" come along, which is harmless.
 raw_output="$(printf '%s' "$payload" | jq -r '
   if ((.tool_name // "") | startswith("mcp__")) then
     [.tool_response | .. | strings] | join("\n")
