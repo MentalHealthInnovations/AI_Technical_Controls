@@ -78,7 +78,7 @@ Claude Code uses a four-layer configuration system. Higher layers take precedenc
 
 ### GitHub CLI (`gh`)
 
-Agent-driven development is significantly slower when every GitHub operation (opening a PR, listing PRs, triaging issues) has to be handed back to a human, so the `gh` CLI is deliberately usable from sandboxed Bash. For that to work the OS sandbox must let the `gh` **binary** read its own `~/.config/gh/config.yml` / `hosts.yml`, so that directory is intentionally absent from `sandbox.filesystem.denyRead` (see `_comment_ghConfig` in `managed-settings.json`). The credential is shielded by layers other than the blanket read-deny:
+Agent-driven development is significantly slower when every GitHub operation (opening a PR, listing PRs, triaging issues) has to be handed back to a human, so the `gh` CLI is deliberately usable from sandboxed Bash. For that to work the OS sandbox must let the `gh` **binary** read its own `~/.config/gh/config.yml` / `hosts.yml`. The `Read(~/.config/gh/**)` permission deny merges into the sandbox read boundary, so `~/.config/gh` is listed in `sandbox.filesystem.allowRead` to re-open it for sandboxed commands (see `_comment_ghConfig` in `managed-settings.json`). The credential is shielded by layers other than the blanket read-deny:
 
 - **Claude's Read tool** is denied on `~/.config/gh/**` (permission rule in `managed-settings.json`).
 - **Bash commands that name the config path** are denied by the `gh_config_path` pre-block in `bash-policy-check.sh`. `gh` never takes its config path as an argument, so any command text mentioning it is an attempt to read the token with an allowlisted text tool.
