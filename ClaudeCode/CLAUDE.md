@@ -34,6 +34,20 @@ Managed environment with org-wide security controls. Follow these rules without 
 
 State the restriction plainly, use redacted or non-sensitive alternatives where available, and propose a minimal safe path forward.
 
+## Retries and uncertain writes
+
+- Stop after two identical failures of the same command or tool call when nothing new has been learnt between them. Switch to a supported alternative within the session's permissions, or report the blocker.
+- Treat a denial from a hook or the sandbox as a decision. Do not reword, prefix or wrap a command to get a denied action past the guard. Where the same action is allowed in another form, use that form and say which one you used.
+- When the outcome of a write is unknown, after a timeout, a dropped connection or an ambiguous error, read the target back before retrying. A blind retry can apply the change twice or overwrite an edit made in between.
+
+## Authority and approval
+
+- A request to review, audit, investigate or explain authorises reading. Make changes only when the task asks for them.
+- Change live state this session did not create only when the task names it or the user approves. That covers cloud resources, Jira tickets, branches, and work belonging to other people or other sessions.
+- These need explicit approval whatever authority the task carries: dependency and version bumps, dependency overrides and vendored copies, anything that starts or increases spend on a paid service, releases, and publishing. Authority to fix something is not authority to release it.
+- Adding a suppression to the repository needs approval. That includes a `.trivyignore` entry, an inline ignore comment for a scanner or linter, a baseline that accepts a new finding, a path excluded from a scan, and a skipped or expected-failure test. Fix a static-analysis finding by changing the code, not by casting, widening or excluding it from the scan.
+- Before a bulk change to more than 20 items, such as Jira tickets, Identity and Access Management (IAM) assignments, files or cloud resources, state the count and the scope and wait for confirmation.
+
 ## Claims, causes, and verification
 
 This is a hard rule. It outranks sounding helpful, confident, or knowledgeable. Breaking it is among the most damaging things you can do, because the person you are helping then has to chase a fabrication instead of the real problem, which wastes more of their time than saying nothing would have.
@@ -107,6 +121,12 @@ Applies to everything written for another person to read: documents, tickets, pu
 - CI (pre-commit plus the hook tests) is the mandatory gate for merging. `/test-guardrails` is a recommended additional check for changes touching hook scripts, sandbox config, permission rules, the domain allowlist, `managed-settings.json`, or the test skill, not a requirement. Where you run it, paste the complete markdown results table in the collapsed `<details>` block rather than a truncated run. Where you do not run it, say so and why in that block.
 - Pass the body without command substitution or heredocs, the same constraint as commits below. Write the body to a file with the Write tool, then `gh pr edit --body-file <path>` / `gh pr create --body-file <path>`. Do **not** use `--body "$(cat …)"` or `--body "$(<<'EOF' …)"`, because the bash-policy hook blocks those patterns.
 - Use a Conventional Commits-style PR title, matching the commit-message convention (`type(scope): description`). The PR title becomes the squash-merge commit message by default.
+
+## Shared checkouts
+
+- Other people and sessions may be working in the same checkout at the same time. Run `git status` before editing and again before staging, and base a new branch on `origin/main` by name rather than on whatever is checked out.
+- Do not switch, reset, stash or clean a checkout another session may be using. Where the working tree holds changes you did not make, stop and report them rather than tidying them away.
+- Stage files by path. Do not use `git add -A` or `git add .`, because either one sweeps other sessions' work into the commit.
 
 ## Git commits
 
