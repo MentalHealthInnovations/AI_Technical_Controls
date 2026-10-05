@@ -6,7 +6,7 @@ name: CI
 #     .pre-commit-config.yaml and run here via `pre-commit run --all-files`.
 #     This includes the PII staged-scan local hook, so contributors who
 #     skipped `pre-commit install` locally still cannot land PII content.
-#   - hook-tests: ClaudeCode/tests/run_all.sh, the hook and library regression
+#   - test: ClaudeCode/tests/run_all.sh, the hook and library regression
 #     suites. run_all.sh owns the list of suites it runs.
 #
 # CI covers syntax, config validity, and hook-script regression, and is the
@@ -27,9 +27,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Each job's key is a check name the default-branch ruleset requires, so the
+# jobs carry no display name. Renaming a key blocks every merge until the
+# ruleset names the new one.
 jobs:
   pre-commit:
-    name: pre-commit (lint, format, validate)
     # Debian-based runner: needed for setup-python and for the Dockerised
     # shellcheck hook, which ubuntu-latest supports out of the box.
     runs-on: ubuntu-latest
@@ -52,8 +54,7 @@ jobs:
       - name: Run all hooks
         run: pre-commit run --all-files --show-diff-on-failure
 
-  hook-tests:
-    name: hook regression suites
+  test:
     runs-on: ubuntu-latest
     # Pin the suite to one minimal environment — Alpine (BusyBox awk, apk) —
     # so GitHub CI and local act runs exercise the same thing. The tests need
