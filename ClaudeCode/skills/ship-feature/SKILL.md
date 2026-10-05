@@ -60,7 +60,7 @@ If `git pull`/`fetch` is blocked or fails on network/auth, hand those commands t
 
 ### 5. Test before opening the PR
 
-CI (pre-commit + hook-tests, run automatically once the PR is open) is the mandatory gate — nothing in this step blocks opening the PR.
+CI (pre-commit + test, run automatically once the PR is open) is the mandatory gate — nothing in this step blocks opening the PR.
 
 **Decide whether this PR changes enforced policy.** It does if the diff touches any of: hook scripts (`ClaudeCode/opt/claude/hooks/`), `managed-settings.json`, permission rules, the domain allowlist or path scopes, or the `/test-guardrails` skill itself.
 

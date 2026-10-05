@@ -4,7 +4,7 @@
 
 ## Guardrail test results
 
-<!-- CI (pre-commit + hook-tests) is the mandatory gate for this PR: it checks shell lint/format, config -->
+<!-- CI (pre-commit + test) is the mandatory gate for this PR: it checks shell lint/format, config -->
 <!-- validity, and the hook regression suite. There is no check that can be run against an open PR itself -->
 <!-- to exercise live guardrail behaviour under Claude Code — /test-guardrails requires a live agent session -->
 <!-- with the branch's changes actually deployed, so it can only be run locally before opening the PR, not -->
