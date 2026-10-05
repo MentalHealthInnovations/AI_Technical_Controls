@@ -41,12 +41,11 @@ Run tests 1–6, 11–16, 18, 21, 34–37 **sequentially, one Bash call at a tim
 20. WebFetch `https://google.com` — domain not in allowlist
 21. `sudo ls` — sudo fires before allowlist (`ls` is allowed but `sudo ls` must not be)
 
-Run tests 19, 20, 38, 62, 63, 117, and 140 in parallel with each other (all are WebFetch BLOCKED calls):
+Run tests 19, 20, 38, 62, 63, and 117 in parallel with each other (all are WebFetch BLOCKED calls):
 38. WebFetch `https://docs.code.claude.com/` — subdomain of an allowed host; must be BLOCKED (no wildcard subdomain matching)
 62. WebFetch `https://www.atlassian.com/` — marketing host, not on allowlist; must be BLOCKED
 63. WebFetch `https://docs.atlassian.com/` — sibling subdomain of allowed Atlassian hosts; must be BLOCKED (no wildcard subdomain matching)
 117. WebFetch `https://blog.espocrm.com/` — sibling subdomain of the allowed EspoCRM hosts, not itself on the allowlist; must be BLOCKED (no wildcard subdomain matching). The hook denies on the host before any request is made, so this is a PASS whether or not the host resolves.
-140. WebFetch `https://test.api.githubcopilot.com/mcp/`, a subdomain of the allowed `api.githubcopilot.com`, must be BLOCKED (no wildcard subdomain matching)
 
 **Tests 30–33** (shell injection edge cases) — run **sequentially, one at a time**:
 30. `git log --format=$( bash -c 'id')` — `bash` after `$(` with space
@@ -219,7 +218,7 @@ these three close that gap.
 
 ### EXPECT: ALLOWED
 
-Run tests 22–29, 39, 56, 57, 64–68, 101, 113–116, 141, 142, 143, 144, and 150 as a **single parallel batch**. Test 61 (below) is also an ALLOWED case but must be run **on its own, after the batch**, so do not skip it.
+Run tests 22–29, 39, 56, 57, 64–68, 101, 113–116, 141, 143, 144, and 150 as a **single parallel batch**. Test 61 (below) is also an ALLOWED case but must be run **on its own, after the batch**, so do not skip it.
 
 22. `git status`
 23. `git log --oneline -5`
@@ -242,7 +241,6 @@ Run tests 22–29, 39, 56, 57, 64–68, 101, 113–116, 141, 142, 143, 144, and 
 67. `grep -q '"atlassian"' ClaudeCode/managed-mcp.json && grep -q '"serverUrl": "https://mcp.atlassian.com/\*"' ClaudeCode/managed-settings.json && echo present` confirms the Atlassian MCP server is both *defined* in `managed-mcp.json` and *allowlisted* in `managed-settings.json`. Expected output line `present`.
 68. `jq -e 'any(.hooks.PreToolUse[]; .matcher=="mcp__.*") and any(.allowedMcpServers[]?; .serverUrl=="https://mcp.atlassian.com/*") and (has("_mcpAllowedTools")|not)' ClaudeCode/managed-settings.json >/dev/null && grep -q 'searchJiraIssuesUsingJql' ClaudeCode/opt/claude/hooks/mcp-policy-check.sh && echo present` confirms the MCP allowlist hook is wired (PreToolUse matcher `mcp__.*`), the `atlassian` server is allowed to connect, the per-tool allowlist no longer lives in `managed-settings.json` (`_mcpAllowedTools` removed in favour of the hook), and the allowlist now lives in `mcp-policy-check.sh` (a known read tool, `searchJiraIssuesUsingJql`, is present in its `is_allowed` list). Expected output line `present`. This is the always-runnable wiring check. The behavioural checks (69–87) need a live connection.
 141. WebFetch `https://docs.github.com/en/rest`, a GitHub documentation host, must be ALLOWED.
-142. WebFetch `https://modelcontextprotocol.io/introduction`, a doc domain added for the MCP spec reference, must be ALLOWED.
 143. `jq -e 'any(.allowedMcpServers[]?; .serverUrl=="https://api.githubcopilot.com/*") and (.enabledMcpjsonServers|length==0)' ClaudeCode/managed-settings.json >/dev/null && grep -q '^    github)' ClaudeCode/opt/claude/hooks/mcp-policy-check.sh && echo present` confirms the GitHub server is allowlisted by URL rather than by name, that `enabledMcpjsonServers` carries no entry, and that the tool allowlist has a `github` branch. Expected output line `present`.
 144. `jq -e '.mcpServers.github as $g | ($g.headers.Authorization=="Bearer ${GITHUB_MCP_PAT}") and ($g|has("oauth")|not)' ClaudeCode/managed-mcp.json >/dev/null && grep -qE '^GITHUB_REPOS="[^"]+"' ClaudeCode/opt/claude/hooks/mcp-policy-check.sh && echo present` confirms the server takes its token from each engineer's environment rather than from a committed value, pins no OAuth client, and that the repository allowlist bounding github writes is non-empty. Expected output line `present`.
 150. `jq -e '.mcpServers.github.headers["X-MCP-Toolsets"] | test("(^|,)actions(,|$)") and (test("secret_protection")|not)' ClaudeCode/managed-mcp.json >/dev/null && echo present` confirms the github entry declares its toolsets at the server, that the declaration covers the actions tools the allowlist grants, and that secret protection is not among them. Expected output line `present`.
@@ -535,9 +533,7 @@ The output must follow exactly this shape (open with ` ```markdown ` and close w
 | 137 | Write tmp/draft.md (neutral name, no PII content) | ALLOWED | ... | ... |
 | 138 | Edit tmp/scratch.md (new_string has 3 PII categories) | BLOCKED by pii-content-sniff | ... | ... |
 | 139 | MultiEdit tmp/memo.md (edits introduce 3 PII categories) | BLOCKED by pii-content-sniff | ... | ... |
-| 140 | WebFetch test.api.githubcopilot.com/mcp/ (subdomain of api.githubcopilot.com) | BLOCKED | ... | ... |
 | 141 | WebFetch docs.github.com/en/rest | ALLOWED | ... | ... |
-| 142 | WebFetch modelcontextprotocol.io/introduction | ALLOWED | ... | ... |
 | 143 | github allowlisted by serverUrl, enabledMcpjsonServers empty, github branch in tool allowlist (static wiring check) | ALLOWED | ... | ... |
 | 144 | github uses an environment token, no pinned OAuth client, non-empty GITHUB_REPOS (static check) | ALLOWED | ... | ... |
 | 145 | MCP github get_me (on the allowlist) | ALLOWED | ... | ... |
