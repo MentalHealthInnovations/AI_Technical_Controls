@@ -78,7 +78,7 @@ Claude Code uses a four-layer configuration system. Higher layers take precedenc
 
 ### GitHub CLI (`gh`)
 
-Agent-driven development is significantly slower when every GitHub operation (opening a PR, listing PRs, triaging issues) has to be handed back to a human, so the `gh` CLI is deliberately usable from sandboxed Bash. For that to work the OS sandbox must let the `gh` **binary** read its own `~/.config/gh/config.yml` / `hosts.yml`, so that directory is intentionally absent from `sandbox.filesystem.denyRead` (see `_comment_ghConfig` in `managed-settings.json`). The credential is shielded by layers other than the blanket read-deny:
+Agent-driven development is significantly slower when every GitHub operation (opening a PR, listing PRs, triaging issues) has to be handed back to a human, so the `gh` CLI is deliberately usable from sandboxed Bash. For that to work the OS sandbox must let the `gh` **binary** read its own `~/.config/gh/config.yml` / `hosts.yml`. The `Read(~/.config/gh/**)` permission deny merges into the sandbox read boundary, so `~/.config/gh` is listed in `sandbox.filesystem.allowRead` to re-open it for sandboxed commands (see `_comment_ghConfig` in `managed-settings.json`). On macOS the request then fails TLS certificate verification under the sandbox, which the Claude Code sandboxing doc lists under troubleshooting for Go binaries, so in-session GitHub work goes through the approved MCP server until that is resolved. The credential is shielded by layers other than the blanket read-deny:
 
 - **Claude's Read tool** is denied on `~/.config/gh/**` (permission rule in `managed-settings.json`).
 - **Bash commands that name the config path** are denied by the `gh_config_path` pre-block in `bash-policy-check.sh`. `gh` never takes its config path as an argument, so any command text mentioning it is an attempt to read the token with an allowlisted text tool.
@@ -86,6 +86,63 @@ Agent-driven development is significantly slower when every GitHub operation (op
 - **Subcommand allowlist**: only `gh issue|pr|repo|gist|label|release` pass the hook at all; everything else is denied by default. On top of that, two pre-blocks fire ahead of the allowlist: `gh_credential_surface` denies `gh auth` (including `gh auth token`, which prints the live credential), `gh api`, `gh secret`, `gh ssh-key`, `gh gpg-key`, and `gh codespace` explicitly; `gh_subcommand` denies `gist create/edit`, `repo delete/archive/rename/edit/create/fork`, `release create/upload/delete/edit`, and `pr merge --admin`.
 
 **Push-to-main and merge protection is intentionally *not* enforced client-side.** Plain `gh pr merge` and `git push` are allowed by the hook. The control for "don't land unreviewed changes on main" sits in GitHub itself, in branch protection rulesets on governed repos (require a PR with approvals, block force pushes, restrict deletions). Server-side rules hold no matter which client performs the operation, whether Claude, a human terminal, or CI, and that is why they, rather than CLI crippling, are the right place for that control. The one client-side exception is `--admin`, which exists to bypass those rules and is therefore hook-blocked.
+
+### Approved MCP servers
+
+| Server | Runtime | Auth | Docs |
+|---|---|---|---|
+| `atlassian` | Remote HTTP (`https://mcp.atlassian.com/v1/mcp`) | OAuth, per-user, browser flow at first connect | https://github.com/atlassian/atlassian-mcp-server |
+| `github` | Remote HTTP (`https://api.githubcopilot.com/mcp/`) | Per-user personal access token (PAT) from the engineer's environment | https://github.com/github/github-mcp-server |
+
+Server definitions live in `managed-mcp.json`, deployed to `/Library/Application Support/ClaudeCode/managed-mcp.json`. That file puts Claude Code into exclusive control. It is the whole set of servers anyone on the machine can run, and users cannot add their own, including through a project `.mcp.json` or the `--mcp-config` flag ([managed MCP documentation](https://code.claude.com/docs/en/managed-mcp#exclusive-control-with-managed-mcp-json)). `managed-settings.json` holds the policy layer around it, `allowManagedMcpServersOnly` and the `allowedMcpServers` allowlist.
+
+Which tools a connected server may run is decided separately, by the default-deny allowlist in `mcp-policy-check.sh`. Nothing else grants a tool, so a newly added server can connect and still do nothing until its tools are listed there.
+
+#### How `github` is restricted
+
+Reads are broad, writes are narrow. Three layers apply, and the write path has to pass all three.
+
+1. **The tool allowlist** in `is_allowed` in `mcp-policy-check.sh` grants reads plus the issue and pull request writes, and nothing else. The comment beside the list records each omitted tool and why. A pull request review whose event is `APPROVE` is denied, because approving is a person's decision, and a file read runs its path through the PII path policy the Read tool answers to.
+2. **The repository allowlist**, `GITHUB_REPOS` in the same hook, binds every write to named repositories, the way `ATLASSIAN_PROJECTS` binds the Jira writes. A write whose owner and repository are missing or unparseable is denied rather than passed through, so the layer fails closed. Reads are not bound by it, because the token's repository selection already limits them.
+3. **The token is the engineer's own**, so GitHub applies that person's permissions on top, and a fine-grained PAT restricted to the repositories they need bounds it again.
+
+Branch protection rulesets and CODEOWNERS still hold server-side whatever the client does, which is what keeps an allowed pull request write from landing unreviewed. The server registers only the toolsets named in the `X-MCP-Toolsets` header in `managed-mcp.json`, and an unknown toolset name is ignored without error ([remote server documentation](https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md)), so after changing it check that `/mcp` lists the tools you expect. Everything a github tool returns passes through `output-redact.sh` before it reaches the model.
+
+#### Per-engineer setup (once)
+
+The `Authorization` header in `managed-mcp.json` reads `Bearer ${GITHUB_MCP_PAT}`, which Claude Code expands from the engineer's environment at connection time ([per-user credentials](https://code.claude.com/docs/en/managed-mcp#authenticate-with-per-user-credentials)). Each engineer holds their own token, so nothing is committed or shared, the GitHub audit log names a person, revoking one affects one person, and each token reaches only that person's repositories.
+
+1. Create a fine-grained PAT at https://github.com/settings/personal-access-tokens. Set **Resource owner** to the MHI organisation, or the token reaches only your personal repositories. An administrator may have to approve it before it works, and again at renewal. Scope it to the repositories you need, with these permissions and nothing else. Issues and pull requests take write, for the issue, comment and pull request tools the allowlist grants. Everything else is read.
+
+   | Permission | Covers |
+   |---|---|
+   | Contents: Read | File contents, repository tree, commits, branches, tags, releases, code and repository search |
+   | Issues: Read and write | Issue reads and search, labels, creating and updating issues, issue comments |
+   | Pull requests: Read and write | Pull request reads and search, opening and updating pull requests, review comments |
+   | Actions: Read | Workflow runs and job logs |
+   | Code scanning alerts: Read | Code scanning alert reads |
+   | Dependabot alerts: Read | Dependabot alert reads |
+   | Metadata: Read | Leave enabled, several endpoints need it |
+
+   Contents stays read, which keeps commits, branches and file changes out of the MCP path. Permission names are from GitHub's [fine-grained token permissions reference](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens). A tool that needs a permission you have not granted fails on its own, so add one only when a tool errors.
+
+2. Put it in your login keychain. The command prompts for the value, so it stays out of shell history. Rerun it to replace a rotated token.
+
+   ```bash
+   security add-generic-password -U -a "$USER" -s github-mcp-pat -w
+   ```
+
+3. Add this line to `~/.zshrc`, so the dotfile holds the lookup rather than the token:
+
+   ```bash
+   export GITHUB_MCP_PAT="$(security find-generic-password -a "$USER" -s github-mcp-pat -w)"
+   ```
+
+4. Run `update_ai_governance`, start a new Claude Code session, and check `/mcp` shows `github` as connected. A session that was already open when the server definition landed does not pick it up.
+
+Revoke your own token at https://github.com/settings/personal-access-tokens, which cuts off nobody else.
+
+If `claude mcp list` does not show `github`, the deployed `managed-mcp.json` is stale, so run `update_ai_governance`. If it reports a missing variable, `GITHUB_MCP_PAT` is not set in the environment Claude Code started from, and the literal `${GITHUB_MCP_PAT}` is sent instead ([variable expansion](https://code.claude.com/docs/en/mcp#environment-variable-expansion-in-mcp-json)). With the token wrong or expired, `/mcp` shows `github` as failed with the HTTP status GitHub returned, rather than offering an OAuth sign-in ([remote server authentication](https://code.claude.com/docs/en/mcp#authenticate-with-remote-mcp-servers)). For the `atlassian` connection flow, see [MCP server operational notes → Atlassian Remote MCP server](#atlassian-remote-mcp-server).
 
 ## Hooks
 
@@ -99,16 +156,16 @@ Two roles. **Policy** hooks make allow/deny decisions, and **audit** hooks obser
 | `webfetch-policy-check.sh` | policy | `PreToolUse` / WebFetch |
 | `pii-path-policy-check.sh` | policy | `PreToolUse` / Read, Edit, Write, MultiEdit |
 | `pii-content-sniff.sh` | policy | `PreToolUse` / Read, Edit, Write, MultiEdit |
-| `output-redact.sh` | policy | `PostToolUse` / Bash, Read, WebFetch |
+| `output-redact.sh` | policy | `PostToolUse` / Bash, Read, WebFetch, MCP tools |
 | `tool-audit.sh` | audit | `PreToolUse` / Edit, Write, Task, SlashCommand, Read |
 | `prompt-submit.sh` | audit | `UserPromptSubmit` |
 | `session-audit.sh` | audit | `SessionStart`, `Stop`, `SessionEnd` |
 
 - **`bash-policy-check.sh`** enforces policy beyond glob matching, catching obfuscation and compound expressions that would bypass simple deny patterns.
 - **`webfetch-policy-check.sh`** enforces the domain allowlist.
-- **`pii-path-policy-check.sh`** is a deterministic denylist for file paths that suggest PII content: data exports (`*-export.csv`, `members.xlsx`), record dumps (`users.sql`, `customers.json`), and files inside data folders (`referrals/`, `exports/`, `dumps/`, `pii/`, `dsar/`). Matched case-insensitively against the basename and any parent directory segment. It fires on any tool whose `tool_input` carries a `file_path` (Read, Edit, Write, MultiEdit), so the agent cannot create a PII-named file via Write or Edit either. See [CLAUDE.md](ClaudeCode/CLAUDE.md) for the agent-behaviour layer that handles content discovered after a read.
+- **`pii-path-policy-check.sh`** is a deterministic denylist for file paths that suggest PII content: data exports (`*-export.csv`, `members.xlsx`), record dumps (`users.sql`, `customers.json`), and files inside data folders (`referrals/`, `exports/`, `dumps/`, `pii/`, `dsar/`). Matched case-insensitively against the basename and any parent directory segment. It fires on any tool whose `tool_input` carries a `file_path` (Read, Edit, Write, MultiEdit), so the agent cannot create a PII-named file via Write or Edit either. The same hook decides the path of a GitHub MCP file read, handed to it by `mcp-policy-check.sh`. See [CLAUDE.md](ClaudeCode/CLAUDE.md) for the agent-behaviour layer that handles content discovered after a read.
 - **`pii-content-sniff.sh`** is the content-level fallback for misnamed files. On Read it scans the first 64 KiB of the on-disk file. On Write, Edit, and MultiEdit it scans the inline `content` / `new_string` / `edits[].new_string` payload being written, because nothing is on disk yet for those tools. It looks for emails, UK postcodes, UK phone numbers, UK National Insurance numbers, IBANs, dates of birth, and grouped 16-digit card-shaped sequences, and denies the operation when at least 3 distinct categories appear or any single high-confidence pattern hits 10 or more times. On Read, known binary extensions (xlsx, sqlite, png, and so on) carrying a NUL byte in the first KiB are skipped, because the path-policy hook owns those by name. A NUL byte on its own, with no binary extension, does not trigger the skip, so a text file cannot dodge scanning by starting with one. Patterns, thresholds, and the counting logic are shared with `pii-staged-scan.sh` via `pii-patterns.sh`.
-- **`output-redact.sh`** scans tool output for secrets. On match, the result is blocked before entering Claude's context. The UI transcript may still show the raw output, but Claude cannot read or act on it. Patterns (defined in `lib/redact.sh`): PEM blocks, AWS keys, GitHub PATs (classic and fine-grained), `sk-` keys, Slack tokens, JWTs, Bearer headers, generic `key=value` / `password=value` assignments, connection strings, and Stripe/Twilio/SendGrid keys.
+- **`output-redact.sh`** scans tool output for secrets, including everything an MCP tool returns. On match, the result is blocked before entering Claude's context. The UI transcript may still show the raw output, but Claude cannot read or act on it. Patterns (defined in `lib/redact.sh`): PEM blocks, AWS keys, GitHub PATs (classic and fine-grained), `sk-` keys, Slack tokens, JWTs, Bearer headers, generic `key=value` / `password=value` assignments, connection strings, and Stripe/Twilio/SendGrid keys.
 - **`tool-audit.sh`** is a pure observer. It logs file paths and sizes for Edit/Write, subagent type and prompt length for Task, the command string for SlashCommand, and file path / offset / limit for Read. Never blocks.
 - **`prompt-submit.sh`** captures every prompt the user submits. The prompt text is passed through the same redaction patterns as tool output, so credentials pasted into prompts are stripped before they reach the audit log. The list of patterns that fired is recorded so an analyst can see *that* a secret was present without storing it.
 - **`session-audit.sh`** records session start (with source: `startup` / `resume` / `clear` / `compact`), `Stop` events, and `SessionEnd` reasons. Lets you reconstruct a per-session timeline by filtering the JSONL trail on `session_id`.
@@ -308,6 +365,7 @@ Verify after deploying:
 cat /Library/Application\ Support/ClaudeCode/VERSION
 shasum -a 256 /opt/claude/hooks/*.sh
 shasum -a 256 /Library/Application\ Support/ClaudeCode/managed-settings.json
+shasum -a 256 /Library/Application\ Support/ClaudeCode/managed-mcp.json
 ```
 
 Then open Claude Code in this repo and run `/test-guardrails` to confirm all controls are live. For hook or permission changes, do this on affected machines immediately after merge rather than waiting for cron.
@@ -333,7 +391,7 @@ Ownership:
 
 | Layer | Owned by |
 |---|---|
-| `managed-settings.json`, `CLAUDE.md`, hooks, sandbox, approved domains/MCP | IT and security |
+| `managed-settings.json`, `managed-mcp.json`, `CLAUDE.md`, hooks, sandbox, approved domains/MCP | IT and security |
 | `.claude/settings.json` (repo-local automation, low-risk allowlists) | Repo maintainers |
 | `~/.claude/settings.json`, `.claude/settings.local.json` (personal/convenience) | Individual engineers |
 
@@ -352,7 +410,7 @@ Engineers may improve convenience inside the rails. They do not control the rail
 | New/updated PII path or directory pattern | `pii-path-policy-check.sh` |
 | New/updated PII content detector or threshold tweak | `pii-patterns.sh` (shared by sniffer and pre-commit scanner) |
 | Pre-commit/CI scanner change (exclude prefixes, thresholds) | `pii-staged-scan.sh` |
-| New MCP server | `managed-settings.json` |
+| New MCP server | `managed-mcp.json` (server definition) + `managed-settings.json` (which servers may connect) + `mcp-policy-check.sh` (which of its tools may run) |
 | Behavioural guidance change | `CLAUDE.md` |
 | Team-wide repo allow rule | `.claude/settings.json` in that repo (not here) |
 | Personal preference | `~/.claude/settings.json` locally (not here) |

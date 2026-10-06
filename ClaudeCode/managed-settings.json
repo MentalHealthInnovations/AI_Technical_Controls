@@ -1,8 +1,8 @@
 {
   "allowedChannelPlugins": [],
   "allowedHttpHookUrls": [],
-  "_comment_allowedMcpServers": "Controls which MCP servers may CONNECT. Which of a connected server's TOOLS may run is a separate, default-deny allowlist that lives in /opt/claude/hooks/mcp-policy-check.sh (see its `is_allowed` function), not here: that hook is the sole consumer of the tool allowlist, so it is kept inline there rather than split across two files.",
-  "allowedMcpServers": [{"serverName": "atlassian"}],
+  "_comment_allowedMcpServers": "This list decides which servers may connect. Which tools a connected server may run is the default-deny allowlist in /opt/claude/hooks/mcp-policy-check.sh (its is_allowed function). Entries match by URL, because a serverName entry counts only while the list holds no serverUrl entry and would also match an impostor server registered under that name. Servers defined in managed-mcp.json skip this list unless their definition uses ${VAR} expansion (https://code.claude.com/docs/en/managed-mcp#how-a-server-is-evaluated). The github entry does, for the per-user token, so its URL entry below is what admits it.",
+  "allowedMcpServers": [{"serverUrl": "https://mcp.atlassian.com/*"}, {"serverUrl": "https://api.githubcopilot.com/*"}],
   "allowManagedHooksOnly": true,
   "allowManagedMcpServersOnly": true,
   "allowManagedPermissionRulesOnly": true,
@@ -29,7 +29,7 @@
     "additionalDirectories": [],
     "defaultMode": "plan",
     "disableBypassPermissionsMode": "disable",
-    "_comment_sensitiveNameGlobs": "These name rules are anchored on separators rather than written as substring globs. A substring glob matched the keyword anywhere in the path, blocking ordinary source and prose files (secretsmanager.tf, SecretsProvider.java, tokenizer.py), and a managed deny cannot carry an exception. The anchored forms match how credential files are named (secrets.yaml, prod-secrets.json, db_secret.txt, db.secret.yaml, api.credentials). Read and Edit denies merge into the sandbox filesystem boundary, so they reach Bash as well as the file tools. Max Levine accepted the gaps that follow, on the basis that name anchoring is best-effort. A keyword with trailing text and no separator (aws_credentials_backup.txt) is not matched. And 'token' carries only the bare name and the suffixes -token, _token and .token, because token.* and tokens.* collide with frontend design-token files, which leaves api-token.json and github_token.txt readable. The compensating control is output-redact.sh, registered for Read as well as Bash, so it rewrites matching values before they reach the model. Its coverage is per pattern rather than universal. It rewrites the branded formats (JWT, GitHub PAT, Slack, Stripe, AWS key id, PEM) and the key names in __REDACT_KEY_PREFIX, so an opaque value under an unlisted key name survives. Do not widen these globs on the assumption that redaction catches everything.",
+    "_comment_sensitiveNameGlobs": "These name rules are anchored on separators rather than written as substring globs. A substring glob matched the keyword anywhere in the path, blocking ordinary source and prose files (secretsmanager.tf, SecretsProvider.java, tokenizer.py), and a managed deny cannot carry an exception. The anchored forms match how credential files are named (secrets.yaml, prod-secrets.json, db_secret.txt, db.secret.yaml, api.credentials). Read and Edit denies merge into the sandbox filesystem boundary, so they reach Bash as well as the file tools. Max Levine accepted the gaps that follow, on the basis that name anchoring is best-effort. A keyword with trailing text and no separator (aws_credentials_backup.txt) is not matched. And 'token' carries only the bare name and the suffixes -token, _token and .token, because token.* and tokens.* collide with frontend design-token files, which leaves api-token.json and github_token.txt readable. The compensating control is output-redact.sh, registered for Read and MCP tool output as well as Bash, so it rewrites matching values before they reach the model. Its coverage is per pattern rather than universal. It rewrites the branded formats (JWT, GitHub PAT, Slack, Stripe, AWS key id, PEM) and the key names in __REDACT_KEY_PREFIX, so an opaque value under an unlisted key name survives. Do not widen these globs on the assumption that redaction catches everything.",
     "deny": [
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",
@@ -211,8 +211,10 @@
     "allowUnsandboxedCommands": false,
 
     "filesystem": {
+      "_comment_ghConfig": "The Read(~/.config/gh/**) permission deny above merges into the sandbox read boundary, so on its own it stops the gh binary reading its config.yml and hosts.yml under sandboxed Bash. The ~/.config/gh entry in allowRead re-opens the directory for sandboxed commands only. The Read tool stays denied by the permission rule, and a command that names the path is denied by the gh_config_path pre-block in bash-policy-check.sh. Do not remove the entry without revisiting test 110 in the guardrail skill.",
       "allowRead": [
-        "."
+        ".",
+        "~/.config/gh"
       ],
       "allowWrite": [
         ".",
@@ -235,7 +237,6 @@
         "./.git/packed-refs",
         "./.git/packed-refs.lock"
       ],
-      "_comment_ghConfig": "~/.config/gh is deliberately absent from denyRead: the gh binary must read its own config.yml/hosts.yml to authenticate when run under sandboxed Bash. Claude-level access to those files remains blocked by the Read(~/.config/gh/**) permission deny above and by the gh_config_path pre-block in bash-policy-check.sh — do not re-add it here without revisiting both.",
       "denyRead": [
         "~/.ssh",
         "~/.aws",
@@ -393,7 +394,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash|Read|WebFetch",
+        "matcher": "Bash|Read|WebFetch|mcp__.*",
         "hooks": [
           {
             "type": "command",

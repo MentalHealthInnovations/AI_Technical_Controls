@@ -28,7 +28,17 @@ One JSON object per line (JSONL). Required fields:
 |---|---|
 | `name` | Short label printed in the test output |
 | `input` | The full `tool_input` object passed to the hook (e.g. `{"file_path": "/repo/users.csv"}`) |
-| `expect` | Expected `permissionDecision` — `deny`, `allow`, or `unset` (hook exited without emitting a decision) |
+| `expect` | Expected `permissionDecision` — `deny`, `allow`, or `unset` (hook exited without emitting a decision). A PostToolUse hook answers with a top-level `decision` instead, so its cases expect `block` or `unset` |
+
+Optional: `tool_name`, for hooks that branch on it. The MCP cases need it, because `mcp-policy-check.sh` parses the server and tool out of the `mcp__<server>__<tool>` name. Also optional: `response`, passed through as `tool_response` for a PostToolUse hook, in whatever shape the tool produces. Blank lines and lines starting with `#` are skipped, so a case file can group and explain its cases.
+
+## MCP policy tests
+
+`cases/mcp-policy.jsonl` covers [mcp-policy-check.sh](../opt/claude/hooks/mcp-policy-check.sh): the per-server tool allowlist, the Jira project scope, and the GitHub repository scope, review-event check and PII path check. It runs without a connected MCP server, so CI verifies the deny logic that `/test-guardrails` can otherwise only check live. Cases that expect `allow` assert an explicit allow, which the hook emits for every permitted tool.
+
+## Output redaction tests
+
+`cases/output-redact.jsonl` drives [output-redact.sh](../opt/claude/hooks/output-redact.sh) with full PostToolUse payloads, carried in the `response` field, and expects `block` when the hook rewrites the output. It covers which tools the hook scans and which response shapes it can read, including the MCP shapes. The patterns themselves are covered by `cases/redact.jsonl`, which `run_redact_cases.sh` runs against the library directly.
 
 ## Staged-scan tests
 
