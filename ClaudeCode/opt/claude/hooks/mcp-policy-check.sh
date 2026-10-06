@@ -166,7 +166,7 @@ jql_scope_ok() {
 # repository selection already limits them and several read tools name no repository.
 # A repository joins the list once mhi-infra manages its branch protections, so that an
 # allowed write cannot land without review.
-GITHUB_REPOS="MentalHealthInnovations/AI_Technical_Controls MentalHealthInnovations/learn MentalHealthInnovations/mhi-infra MentalHealthInnovations/translation"
+GITHUB_REPOS="MentalHealthInnovations/AI_Technical_Controls MentalHealthInnovations/counselling-schema MentalHealthInnovations/learn MentalHealthInnovations/mhi-infra MentalHealthInnovations/translation"
 
 # repo_allowed <owner> <repo>. True iff owner/repo (any case) is in GITHUB_REPOS.
 repo_allowed() {
