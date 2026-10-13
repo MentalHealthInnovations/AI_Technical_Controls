@@ -30,6 +30,7 @@ audit_init "mcp-policy"
 # The github write tools, listed once so a tool cannot be granted in is_allowed and left
 # unscoped in repo_scope_ok.
 GITHUB_WRITE_TOOLS="add_issue_comment issue_write \
+                    create_branch push_files \
                     create_pull_request update_pull_request \
                     pull_request_review_write add_comment_to_pending_review \
                     add_reply_to_pull_request_comment"
@@ -55,8 +56,11 @@ is_allowed() {
       #     return personal data, the same rule as the PII file hooks.
       #   merge_pull_request and update_pull_request_branch, because landing or moving a
       #     branch is a human decision.
-      #   create_or_update_file, push_files, delete_file and create_branch, because
-      #     content writes belong in git under the bash policy.
+      #   create_or_update_file and delete_file, because push_files is the one content
+      #     write route and path_policy_ok below binds it. create_branch and push_files
+      #     are how a branch reaches GitHub for a pull request, since the sandbox gives
+      #     git no route to the remote. Branch protection keeps them off main, the same
+      #     server-side control the README relies on for git push and gh pr merge.
       #   create_repository, delete_repository, fork_repository, actions_run_trigger,
       #     label_write and the governance writes, because none of them are review work.
       #   list_issue_types and list_issue_fields, because MHI does not use issue types
@@ -209,23 +213,30 @@ review_event_ok() {
   [[ "$event" != APPROVE ]]
 }
 
-# --- GitHub file reads -------------------------------------------------------
-# path_policy_ok <server> <tool> <payload>. True unless a github get_file_contents names
-# a path that pii-path-policy-check.sh would deny for the Read tool. The server returns
-# file content straight into context, past the Read tool's rules, so the path is handed
-# to that hook as a Read-shaped payload (tool_name Read, so its Read rules apply whatever
-# it keys on). The path hook audits the synthesised call and this hook audits the real
-# tool name with reason pii_path. A missing or failing path hook denies the read.
+# --- GitHub file paths -------------------------------------------------------
+# path_policy_ok <server> <tool> <payload>. True unless a github get_file_contents or
+# push_files names a path that pii-path-policy-check.sh would deny for the Read tool.
+# A read returns file content straight into context, past the Read tool's rules, and a
+# push lands content on GitHub past the Write tool's rules, so each path is handed to
+# that hook as a Read-shaped payload (tool_name Read, so its Read rules apply whatever
+# it keys on). The path hook audits each synthesised call and this hook audits the real
+# tool name with reason pii_path. A missing or failing path hook denies the call, and so
+# does a pushed file with no path. A read with no path is a directory listing.
 path_policy_ok() {
-  local server="$1" tool="$2" pl="$3" path out
-  [[ "$server" == github && "$tool" == get_file_contents ]] || return 0
-  path="$(printf '%s' "$pl" | jq -r '.tool_input.path // empty')"
-  [[ -n "$path" ]] || return 0
+  local server="$1" tool="$2" pl="$3" path paths out
+  [[ "$server" == github ]] || return 0
+  [[ "$tool" == get_file_contents || "$tool" == push_files ]] || return 0
+  printf '%s' "$pl" | jq -e '[.tool_input.files[]? | (.path // "") != ""] | all' >/dev/null || return 1
+  # One path per line: the read's path, or each pushed file's path.
+  paths="$(printf '%s' "$pl" | jq -r '.tool_input | (.path // empty), (.files[]? | .path)')"
+  [[ -n "$paths" ]] || return 0
   [[ -x "$HOOK_DIR/pii-path-policy-check.sh" ]] || return 1
-  out="$(printf '%s' "$pl" \
-        | jq -c --arg p "$path" '.tool_name = "Read" | .tool_input = {file_path: $p}' \
-        | "$HOOK_DIR/pii-path-policy-check.sh" 2>/dev/null)" || return 1
-  [[ "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null)" != deny ]]
+  while IFS= read -r path; do
+    out="$(printf '%s' "$pl" \
+          | jq -c --arg p "$path" '.tool_name = "Read" | .tool_input = {file_path: $p}' \
+          | "$HOOK_DIR/pii-path-policy-check.sh" 2>/dev/null)" || return 1
+    [[ "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null)" != deny ]] || return 1
+  done <<< "$paths"
 }
 
 # project_scope_ok <server> <tool> <payload> — true unless the call names a
@@ -311,7 +322,7 @@ if is_allowed "$server" "$tool"; then
   if ! repo_scope_ok "$server" "$tool" "$payload"; then
     emit_deny "repo_not_in_allowlist" "GitHub repository not in the policy allowlist for this server"
   fi
-  # A github file read answers to the same path policy as the Read tool.
+  # A github file read or content push answers to the same path policy as the Read tool.
   if ! path_policy_ok "$server" "$tool" "$payload"; then
     emit_deny "pii_path" "File path matches the PII path policy, the same rule the Read tool applies"
   fi
