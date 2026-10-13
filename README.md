@@ -102,7 +102,7 @@ Which tools a connected server may run is decided separately, by the default-den
 
 Reads are broad, writes are narrow. Three layers apply, and the write path has to pass all three.
 
-1. **The tool allowlist** in `is_allowed` in `mcp-policy-check.sh` grants reads plus the issue, branch and pull request writes, and nothing else. The comment beside the list records each omitted tool and why. A pull request review whose event is `APPROVE` is denied, because approving is a person's decision. A file read or push runs each path through the PII path policy the Read tool answers to. The branch writes (`create_branch`, `push_files`) exist because the sandbox gives git no route to the remote (SSH push and `gh` both fail under it), so without them every pull request needs a person to push the branch first. Branch protection keeps them off `main`, as it does `git push`.
+1. **The tool allowlist** in `is_allowed` in `mcp-policy-check.sh` grants reads plus the issue, branch and pull request writes, and nothing else. The comment beside the list records each omitted tool and why. A pull request review whose event is `APPROVE` is denied, because approving is a person's decision. A file read or push runs each path through the PII path policy the Read tool answers to. `create_branch` and `push_files` are granted because the sandbox gives git no route to the remote, so a pull request branch has no other way up.
 2. **The repository allowlist**, `GITHUB_REPOS` in the same hook, binds every write to named repositories, the way `ATLASSIAN_PROJECTS` binds the Jira writes. A write whose owner and repository are missing or unparseable is denied rather than passed through, so the layer fails closed. Reads are not bound by it, because the token's repository selection already limits them.
 3. **The token is the engineer's own**, so GitHub applies that person's permissions on top, and a fine-grained PAT restricted to the repositories they need bounds it again.
 
@@ -124,7 +124,7 @@ The `Authorization` header in `managed-mcp.json` reads `Bearer ${GITHUB_MCP_PAT}
    | Dependabot alerts: Read | Dependabot alert reads |
    | Metadata: Read | Leave enabled, several endpoints need it |
 
-   Contents write is what `create_branch` and `push_files` need. Branch protection holds server-side whatever the token can do. Permission names are from GitHub's [fine-grained token permissions reference](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens). A tool that needs a permission you have not granted fails on its own, so add one only when a tool errors.
+   Contents write is for `create_branch` and `push_files`. Permission names are from GitHub's [fine-grained token permissions reference](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens). A tool that needs a permission you have not granted fails on its own, so add one only when a tool errors.
 
 2. Put it in your login keychain. The command prompts for the value, so it stays out of shell history. Rerun it to replace a rotated token.
 

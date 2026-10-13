@@ -92,7 +92,7 @@ CI (pre-commit + test, run automatically once the PR is open) is the mandatory g
 - Read the repo's PR template ([.github/pull_request_template.md](../../../.github/pull_request_template.md)) **in this turn** and populate **every** section against the full diff vs the base branch — re-derive the description from `git diff main...HEAD`, not from memory of the session. Run `git diff --stat main...HEAD` first to ground it.
 - Use a Conventional-Commits-style PR title (it becomes the squash-merge message).
 - Pass the body via a **file**, not command substitution: Write the body to a temp file, then `gh pr create --title "type(scope): ..." --base main --head <branch> --body-file <path>`. Do **not** use `--body "$(cat ...)"` or heredocs — the bash-policy hook blocks them.
-- If you ran `/test-guardrails` in step 5, say so in the Summary and name any regression. If you did not, say nothing: CI is the gate. Either way, complete the Security risk assessment honestly: tick the boxes that apply and fill the prose subsections (write "None" where a box doesn't apply rather than leaving placeholders).
+- If you ran `/test-guardrails` in step 5, say so in the Summary and name any regression. If you did not, say nothing: CI is the gate.
 - If `gh` is unauthenticated or the create is blocked, hand the user the exact `gh pr create ...` command (and tell them where the body file is) and stop.
 
 ### 7. Report
