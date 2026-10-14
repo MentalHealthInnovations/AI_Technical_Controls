@@ -265,7 +265,9 @@ allowed_patterns=(
   "^git fetch"
   "^git pull"
   "^git checkout"
+  "^git switch"
   "^git branch"
+  "^git worktree"  # add/list/prune; remove --force and branch -D are caught above
   "^git merge"
   "^git rebase"   # --onto and non-hard rebases are allowed; --hard is caught above
   "^git push"
