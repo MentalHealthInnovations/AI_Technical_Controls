@@ -52,6 +52,11 @@ as a governance hook: two-person / CODEOWNERS review, no untrusted inline execut
   with `/test-guardrails`.
 - **`ship-feature`** — one-shot feature delivery (sync main, branch, commit, test, open a
   PR) for this governance repo's workflow. Manual-only; invoke with `/ship-feature`.
+- **`refine`** — tightens prose, plans and ticket text to the house style in the
+  `CLAUDE.md` files, checked against the documents around it. Returns marked-up text for
+  review, never an in-place edit. Model-invocable, so it triggers on any request to
+  refine, tighten or polish writing, or on a draft about to be posted; invoke directly
+  with `/refine`.
 
 ## Verifying deployment
 
