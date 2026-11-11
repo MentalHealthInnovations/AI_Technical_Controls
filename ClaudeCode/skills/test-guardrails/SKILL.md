@@ -251,7 +251,7 @@ Run tests 22–29, 39, 56, 57, 64–68, 101, 113–116, 141, 143, 144, 150, 156 
 
 **Tests 69–87** (`mcp-policy-check.sh` default-deny allowlist, behavioural — one per connected Atlassian tool). Run the **BLOCKED** cases (69, 71–77) **sequentially, one at a time**; the **ALLOWED** cases (70, 78–87) may be **batched**. Run these **only when the `atlassian` MCP server is connected** (`/mcp` shows `connected`). If it is disconnected, these tool names are not registered and each call fails with "tool not found" rather than a hook decision, so record every one as `Not run — atlassian MCP not connected` rather than as a failure.
 
-These exercise the allowlist defined in the `is_allowed` function inside `mcp-policy-check.sh`. That hook is the single source of truth for which tools may run — the allowlist is **not** in `managed-settings.json` (only `allowedMcpServers`, which governs which servers may connect, lives there). The allowlist permits the read-only tools plus six Jira write tools (`createJiraIssue`, `editJiraIssue`, `transitionJiraIssue`, `addCommentToJiraIssue`, `addWorklogToJiraIssue`, `createIssueLink`), and denies every other tool by omission (default-deny). The write tools are further bound by the project-scope layer below, the same as project-bearing reads. The ALLOWED (read) tests call read-only tools; each may still return an Atlassian-side result or error, which still counts as PASS as long as the hook did not block it — PASS here means "passed the hook", not "Atlassian returned data".
+These exercise the allowlist defined in the `is_allowed` function inside `mcp-policy-check.sh`. That hook is the single source of truth for which tools may run — the allowlist is **not** in `managed-settings.json` (only `allowedMcpServers`, which governs which servers may connect, lives there). The allowlist permits the read-only tools plus six Jira write tools (`createJiraIssue`, `editJiraIssue`, `transitionJiraIssue`, `addOrEditJiraIssueComment`, `addOrEditJiraIssueWorklog`, `createJiraIssueLink`), and denies every other tool by omission (default-deny). The write tools are further bound by the project-scope layer below, the same as project-bearing reads. The ALLOWED (read) tests call read-only tools; each may still return an Atlassian-side result or error, which still counts as PASS as long as the hook did not block it — PASS here means "passed the hook", not "Atlassian returned data".
 
 > **Write tools are live once they pass this hook.** Unlike the read tests, a write call that passes both the tool allowlist and the project-scope check reaches Atlassian and performs a real create/edit/comment/worklog/link/transition against production Jira. Tests 69 and 71–75 below deliberately target a **non-allowlisted** project so they are denied by the project-scope layer and never reach Atlassian — do not substitute an allowlisted project's key into them, and do not add a routine "confirm the write lands" test to this automated suite. Verifying an end-to-end allowed write is a manual, one-off exercise against a disposable issue, done outside a routine guardrail run.
 
@@ -260,7 +260,7 @@ The same hook also enforces a **Jira project allowlist** (`ATLASSIAN_PROJECTS` i
 > **What to pass as args.** For tests 76–77 (`search`/`fetch`, not on the allowlist at all) any schema-valid minimal args are fine — the hook denies before the args matter. Tests 69 and 71–75 (write tools) need the specific non-allowlisted-project args given per test below, since the hook now only denies them on project scope, not on the base allowlist. For ALLOWED (read) tools, establish real values first so each call returns data instead of an Atlassian 404/400, then reuse them across tests 80–87:
 >
 > 1. `getAccessibleAtlassianResources` (no args) → the `cloudId` (the `id` field).
-> 2. `getVisibleJiraProjects` with that `cloudId` → pick a project key that is **on the `ATLASSIAN_PROJECTS` allowlist** (one of `PLAN`, `DENGS`, `DATA`, `MJB`, `DE`, `DSD`, `ED`, `DAR`, `KPR`), and one of its `issueTypeId`s from `expandIssueTypes`. A non-allowlisted key would be denied by the project-scope layer, failing the ALLOWED expectation.
+> 2. `listJiraProjects` with that `cloudId` → pick a project key that is **on the `ATLASSIAN_PROJECTS` allowlist** (one of `PLAN`, `DENGS`, `DATA`, `MJB`, `DE`, `DSD`, `ED`, `DAR`, `KPR`), and one of its `issueTypeId`s from `expand: "issueTypes"`. A non-allowlisted key would be denied by the project-scope layer, failing the ALLOWED expectation.
 > 3. `searchJiraIssuesUsingJql` with that `cloudId` and a **bounded** JQL naming an allowlisted project, e.g. `project = PLAN ORDER BY created DESC`, `maxResults: 1` → a real `issueIdOrKey` from an allowlisted project.
 >
 > Substitute those into the per-tool calls below. A bare `ORDER BY created DESC` is rejected by Jira as an unbounded query, and placeholder keys like `TEST-1` / `TEST` return "issue does not exist" or "you cannot create issues in this project". Such Atlassian-side errors still count as a hook PASS (PASS = passed the hook), but using real values from an allowlisted project keeps the run clean and confirms the read path end to end rather than stopping at the project-scope layer or a Jira validation error.
@@ -269,28 +269,28 @@ Blocked — tool is on the allowlist, but the named project (`VST`, not on `ATLA
 
 69. `mcp__atlassian__createJiraIssue` with `projectKey: "VST"` — create issue (write), non-allowlisted project
 71. `mcp__atlassian__editJiraIssue` with `issueIdOrKey: "VST-1"` — update issue (write), non-allowlisted project
-72. `mcp__atlassian__addCommentToJiraIssue` with `issueIdOrKey: "VST-1"` — add comment (write), non-allowlisted project
-73. `mcp__atlassian__addWorklogToJiraIssue` with `issueIdOrKey: "VST-1"` — add worklog (write), non-allowlisted project
-74. `mcp__atlassian__createIssueLink` with `inwardIssue: "PLAN-1"`, `outwardIssue: "VST-1"` — link two issues (write); one allowlisted end is not enough, the non-allowlisted `outwardIssue` denies the whole call
+72. `mcp__atlassian__addOrEditJiraIssueComment` with `issueIdOrKey: "VST-1"` — add comment (write), non-allowlisted project
+73. `mcp__atlassian__addOrEditJiraIssueWorklog` with `issueIdOrKey: "VST-1"` — add worklog (write), non-allowlisted project
+74. `mcp__atlassian__createJiraIssueLink` with `inwardIssue: "PLAN-1"`, `outwardIssue: "VST-1"` — link two issues (write); one allowlisted end is not enough, the non-allowlisted `outwardIssue` denies the whole call
 75. `mcp__atlassian__transitionJiraIssue` with `issueIdOrKey: "VST-1"` — transition status (write), non-allowlisted project
 
 Blocked — not on the allowlist at all, must be denied by `mcp-policy-check.sh` (`not_in_allowlist`):
 
 76. `mcp__atlassian__search` — Rovo cross-product search (read, but not on the allowlist)
-77. `mcp__atlassian__fetch` — Rovo fetch-by-ARI (read, but not on the allowlist)
+77. `mcp__atlassian__fetch` — Rovo fetch-by-ARI (read, but not on the allowlist). Atlassian's v2 tool list does not name `fetch`, so if `/mcp` does not list it, record `Tool unavailable`, which is a PASS
 
 Allowed — on the allowlist, must pass the hook (all read-only):
 
-70. `mcp__atlassian__getVisibleJiraProjects` (needs `cloudId`)
+70. `mcp__atlassian__listJiraProjects` (needs `cloudId`)
 78. `mcp__atlassian__getAccessibleAtlassianResources` (no args)
 79. `mcp__atlassian__atlassianUserInfo` (no args)
 80. `mcp__atlassian__getJiraIssue` (needs `cloudId`, `issueIdOrKey`)
-81. `mcp__atlassian__getJiraIssueRemoteIssueLinks` (needs `cloudId`, `issueIdOrKey`)
+81. `mcp__atlassian__listJiraIssueRemoteIssueLinks` (needs `cloudId`, `issueIdOrKey`)
 82. `mcp__atlassian__getJiraIssueTypeMetaWithFields` (needs `cloudId`, `projectIdOrKey`, `issueTypeId`)
-83. `mcp__atlassian__getJiraProjectIssueTypesMetadata` (needs `cloudId`, `projectIdOrKey`)
-84. `mcp__atlassian__getIssueLinkTypes` (needs `cloudId`)
-85. `mcp__atlassian__getTransitionsForJiraIssue` (needs `cloudId`, `issueIdOrKey`)
-86. `mcp__atlassian__lookupJiraAccountId` (needs `cloudId`, `searchString`)
+83. `mcp__atlassian__listJiraProjectIssueTypesMetadata` (needs `cloudId`, `projectIdOrKey`)
+84. `mcp__atlassian__listJiraIssueLinkTypes` (needs `cloudId`)
+85. `mcp__atlassian__listJiraIssueTransitions` (needs `cloudId`, `issueIdOrKey`)
+86. `mcp__atlassian__lookupJiraAccountId` (needs `cloudId`, `query`)
 87. `mcp__atlassian__searchJiraIssuesUsingJql` (needs `cloudId`, a **bounded** `jql` such as `project = PLAN ORDER BY created DESC` — an unbounded `ORDER BY created DESC` is rejected by Jira with "Unbounded JQL queries are not allowed here")
 
 ### EXPECT: project-scoped (`mcp-policy-check.sh` Jira project allowlist)
@@ -303,9 +303,9 @@ Test 88 is a **static wiring check** (always runnable, no live connection). Test
 
 Blocked — project not on the allowlist, must be denied by `mcp-policy-check.sh` (`project_not_in_allowlist`):
 
-89. `mcp__atlassian__getJiraProjectIssueTypesMetadata` with `projectIdOrKey: "VST"` — non-allowlisted project; **BLOCKED**
+89. `mcp__atlassian__listJiraProjectIssueTypesMetadata` with `projectIdOrKey: "VST"` — non-allowlisted project; **BLOCKED**
 90. `mcp__atlassian__getJiraIssue` with `issueIdOrKey: "VST-1"` — issue in a non-allowlisted project; **BLOCKED**
-91. `mcp__atlassian__getJiraProjectIssueTypesMetadata` with `projectIdOrKey: "ONB"` — non-allowlisted project; **BLOCKED**
+91. `mcp__atlassian__listJiraProjectIssueTypesMetadata` with `projectIdOrKey: "ONB"` — non-allowlisted project; **BLOCKED**
 92. `mcp__atlassian__getJiraIssue` with `issueIdOrKey: "ONB-1"` — issue in a non-allowlisted project; **BLOCKED**
 93. `mcp__atlassian__searchJiraIssuesUsingJql` with `jql: "project = VST ORDER BY created DESC"` — JQL scoped to a non-allowlisted project; **BLOCKED**
 94. `mcp__atlassian__searchJiraIssuesUsingJql` with `jql: "project in (PLAN, ONB) ORDER BY created DESC"` — mixed list, `ONB` not allowlisted, so the whole query is **BLOCKED** (one non-allowlisted project denies the call)
@@ -313,15 +313,15 @@ Blocked — project not on the allowlist, must be denied by `mcp-policy-check.sh
 
 Allowed — project on the allowlist, must pass the hook (an Atlassian-side 403/404 if the signed-in user lacks access to that project is still a hook PASS):
 
-> **Tool choice — avoid Atlassian-side permission errors.** `getJiraProjectIssueTypesMetadata` returns the *create-issue* field metadata, so Atlassian rejects it with "You cannot create issues in this project" for any project where the signed-in user lacks create permission (e.g. `DENGS`, `DATA`, `MJB`) — a noisy red error even though the hook passed. Test 96 keeps `getJiraProjectIssueTypesMetadata` against `PLAN` (where create is permitted) to cover the `projectIdOrKey` parse path cleanly; tests 97–99 use the read-only `searchJiraIssuesUsingJql` path instead, which returns issues (or an empty list) without a permission error while still exercising the project allowlist for each key. Pass `fields: ["key"]`, `maxResults: 1` to keep the response small.
+> **Tool choice — avoid Atlassian-side permission errors.** `listJiraProjectIssueTypesMetadata` returns the *create-issue* field metadata, so Atlassian rejects it with "You cannot create issues in this project" for any project where the signed-in user lacks create permission (e.g. `DENGS`, `DATA`, `MJB`) — a noisy red error even though the hook passed. Test 96 keeps `listJiraProjectIssueTypesMetadata` against `PLAN` (where create is permitted) to cover the `projectIdOrKey` parse path cleanly; tests 97–99 use the read-only `searchJiraIssuesUsingJql` path instead, which returns issues (or an empty list) without a permission error while still exercising the project allowlist for each key. Pass `fields: ["key"]`, `maxResults: 1` to keep the response small.
 
-96. `mcp__atlassian__getJiraProjectIssueTypesMetadata` with `projectIdOrKey: "PLAN"` — allowlisted, create permitted; **ALLOWED**
+96. `mcp__atlassian__listJiraProjectIssueTypesMetadata` with `projectIdOrKey: "PLAN"` — allowlisted, create permitted; **ALLOWED**
 97. `mcp__atlassian__searchJiraIssuesUsingJql` with `jql: "project = DENGS ORDER BY created DESC"`, `maxResults: 1`, `fields: ["key"]` — allowlisted; **ALLOWED**
 98. `mcp__atlassian__searchJiraIssuesUsingJql` with `jql: "project = DATA ORDER BY created DESC"`, `maxResults: 1`, `fields: ["key"]` — allowlisted; **ALLOWED**
 99. `mcp__atlassian__searchJiraIssuesUsingJql` with `jql: "project = MJB ORDER BY created DESC"`, `maxResults: 1`, `fields: ["key"]` — allowlisted; **ALLOWED**
 100. `mcp__atlassian__searchJiraIssuesUsingJql` with `jql: "project = PLAN ORDER BY created DESC"`, `maxResults: 1` — AND-only JQL scoped to an allowlisted project; **ALLOWED**
 
-101. `grep -qF 'createJiraIssue editJiraIssue transitionJiraIssue' ClaudeCode/opt/claude/hooks/mcp-policy-check.sh && grep -qF 'addCommentToJiraIssue addWorklogToJiraIssue createIssueLink' ClaudeCode/opt/claude/hooks/mcp-policy-check.sh && echo present` — static wiring check confirming all six Jira write tools are present, contiguously, in the `is_allowed` allowlist string (not merely mentioned in a comment); paired with the live BLOCKED tests 69/71-75 passing with `project_not_in_allowlist` rather than `not_in_allowlist`, together these confirm the tools are both present and reachable past the base allowlist check; expected output line `present`. **ALLOWED**, always runnable, no live connection needed. Kept at 2 `&&` operators (the chaining threshold from test 6) so this test does not trip the bash-policy chaining guardrail itself.
+101. `grep -qF 'createJiraIssue editJiraIssue transitionJiraIssue' ClaudeCode/opt/claude/hooks/mcp-policy-check.sh && grep -qF 'addOrEditJiraIssueComment addOrEditJiraIssueWorklog createJiraIssueLink' ClaudeCode/opt/claude/hooks/mcp-policy-check.sh && echo present` — static wiring check confirming all six Jira write tools are present, contiguously, in the `is_allowed` allowlist string (not merely mentioned in a comment); paired with the live BLOCKED tests 69/71-75 passing with `project_not_in_allowlist` rather than `not_in_allowlist`, together these confirm the tools are both present and reachable past the base allowlist check; expected output line `present`. **ALLOWED**, always runnable, no live connection needed. Kept at 2 `&&` operators (the chaining threshold from test 6) so this test does not trip the bash-policy chaining guardrail itself.
 
 **Test 61** (`.git/HEAD` write is permitted) — run on its own.
 
@@ -467,33 +467,33 @@ The output must follow exactly this shape (open with ` ```markdown ` and close w
 | 67 | atlassian MCP server defined in managed-mcp.json and allowlisted in managed-settings.json | ALLOWED | ... | ... |
 | 68 | MCP allowlist hook wired in managed-settings + allowlist moved to mcp-policy-check.sh (not in managed-settings) | ALLOWED | ... | ... |
 | 69 | MCP createJiraIssue projectKey=VST (write, non-allowlisted project) | BLOCKED | ... | ... |
-| 70 | MCP getVisibleJiraProjects (read) | ALLOWED | ... | ... |
+| 70 | MCP listJiraProjects (read) | ALLOWED | ... | ... |
 | 71 | MCP editJiraIssue VST-1 (write, non-allowlisted project) | BLOCKED | ... | ... |
-| 72 | MCP addCommentToJiraIssue VST-1 (write, non-allowlisted project) | BLOCKED | ... | ... |
-| 73 | MCP addWorklogToJiraIssue VST-1 (write, non-allowlisted project) | BLOCKED | ... | ... |
-| 74 | MCP createIssueLink PLAN-1/VST-1 (write, one end non-allowlisted) | BLOCKED | ... | ... |
+| 72 | MCP addOrEditJiraIssueComment VST-1 (write, non-allowlisted project) | BLOCKED | ... | ... |
+| 73 | MCP addOrEditJiraIssueWorklog VST-1 (write, non-allowlisted project) | BLOCKED | ... | ... |
+| 74 | MCP createJiraIssueLink PLAN-1/VST-1 (write, one end non-allowlisted) | BLOCKED | ... | ... |
 | 75 | MCP transitionJiraIssue VST-1 (write, non-allowlisted project) | BLOCKED | ... | ... |
 | 76 | MCP search (Rovo search, not allowlisted) | BLOCKED | ... | ... |
 | 77 | MCP fetch (Rovo fetch, not allowlisted) | BLOCKED | ... | ... |
 | 78 | MCP getAccessibleAtlassianResources (read) | ALLOWED | ... | ... |
 | 79 | MCP atlassianUserInfo (read) | ALLOWED | ... | ... |
 | 80 | MCP getJiraIssue (read) | ALLOWED | ... | ... |
-| 81 | MCP getJiraIssueRemoteIssueLinks (read) | ALLOWED | ... | ... |
+| 81 | MCP listJiraIssueRemoteIssueLinks (read) | ALLOWED | ... | ... |
 | 82 | MCP getJiraIssueTypeMetaWithFields (read) | ALLOWED | ... | ... |
-| 83 | MCP getJiraProjectIssueTypesMetadata (read) | ALLOWED | ... | ... |
-| 84 | MCP getIssueLinkTypes (read) | ALLOWED | ... | ... |
-| 85 | MCP getTransitionsForJiraIssue (read) | ALLOWED | ... | ... |
+| 83 | MCP listJiraProjectIssueTypesMetadata (read) | ALLOWED | ... | ... |
+| 84 | MCP listJiraIssueLinkTypes (read) | ALLOWED | ... | ... |
+| 85 | MCP listJiraIssueTransitions (read) | ALLOWED | ... | ... |
 | 86 | MCP lookupJiraAccountId (read) | ALLOWED | ... | ... |
 | 87 | MCP searchJiraIssuesUsingJql (read) | ALLOWED | ... | ... |
 | 88 | project allowlist wired in mcp-policy-check.sh (ATLASSIAN_PROJECTS + project_scope_ok) | ALLOWED | ... | ... |
-| 89 | MCP getJiraProjectIssueTypesMetadata VST (not allowlisted) | BLOCKED | ... | ... |
+| 89 | MCP listJiraProjectIssueTypesMetadata VST (not allowlisted) | BLOCKED | ... | ... |
 | 90 | MCP getJiraIssue VST-1 (not allowlisted) | BLOCKED | ... | ... |
-| 91 | MCP getJiraProjectIssueTypesMetadata ONB (not allowlisted) | BLOCKED | ... | ... |
+| 91 | MCP listJiraProjectIssueTypesMetadata ONB (not allowlisted) | BLOCKED | ... | ... |
 | 92 | MCP getJiraIssue ONB-1 (not allowlisted) | BLOCKED | ... | ... |
 | 93 | MCP searchJiraIssuesUsingJql project = VST (not allowlisted) | BLOCKED | ... | ... |
 | 94 | MCP searchJiraIssuesUsingJql project in (PLAN, ONB) (mixed, ONB not allowlisted) | BLOCKED | ... | ... |
 | 95 | MCP searchJiraIssuesUsingJql project = PLAN OR ... (OR escapes scope) | BLOCKED | ... | ... |
-| 96 | MCP getJiraProjectIssueTypesMetadata PLAN (allowlisted) | ALLOWED | ... | ... |
+| 96 | MCP listJiraProjectIssueTypesMetadata PLAN (allowlisted) | ALLOWED | ... | ... |
 | 97 | MCP searchJiraIssuesUsingJql project = DENGS (allowlisted) | ALLOWED | ... | ... |
 | 98 | MCP searchJiraIssuesUsingJql project = DATA (allowlisted) | ALLOWED | ... | ... |
 | 99 | MCP searchJiraIssuesUsingJql project = MJB (allowlisted) | ALLOWED | ... | ... |
@@ -566,7 +566,7 @@ The output must follow exactly this shape (open with ` ```markdown ` and close w
 
 Rules for the report:
 
-- Fill the **Actual** column with `BLOCKED`, `ALLOWED`, `Tool unavailable` (for test 10), `VALID JSON` / `INVALID JSON` / `Not run` (tests 46–48, the audit-log JSON integrity checks; `Not run` when the JSONL audit log is not installed), or `AUDIT HOOK FIRED` / `NO RECORD` / `Not run` (tests 58–60, the audit-hook execution checks; `NO RECORD` means the hook is registered but did not fire). For tests 69–87 (live MCP behavioural checks, one per Atlassian tool) and 89–100 (project-allowlist behavioural checks), use `BLOCKED` / `ALLOWED` or `Not run — atlassian MCP not connected` when the server is disconnected. Tests 88 and 101 are static wiring checks (always runnable, no live connection needed): use `ALLOWED` when each prints `present`. For tests 102–112 (gh enablement controls and final-segment enforcement), use `BLOCKED` / `ALLOWED`, or `Not run — gh policy not yet installed` when the installed hook lacks the `gh_config_path` pre-block (see that section's prerequisite). For tests 113–116 (EspoCRM domains), use `ALLOWED`, or `Not run — EspoCRM domains not yet installed` when the deployed allowlist predates them (see that section's prerequisite). For tests 145–149, 151–155, 159 and 160 (live GitHub MCP checks), use `BLOCKED` / `ALLOWED`, or `Not run, github MCP not connected` when the server is disconnected. Test 150 is a static wiring check, `ALLOWED` when it prints `present`. Do not paste error strings or hook messages.
+- Fill the **Actual** column with `BLOCKED`, `ALLOWED`, `Tool unavailable` (for tests 10 and 77), `VALID JSON` / `INVALID JSON` / `Not run` (tests 46–48, the audit-log JSON integrity checks; `Not run` when the JSONL audit log is not installed), or `AUDIT HOOK FIRED` / `NO RECORD` / `Not run` (tests 58–60, the audit-hook execution checks; `NO RECORD` means the hook is registered but did not fire). For tests 69–87 (live MCP behavioural checks, one per Atlassian tool) and 89–100 (project-allowlist behavioural checks), use `BLOCKED` / `ALLOWED` or `Not run — atlassian MCP not connected` when the server is disconnected. Tests 88 and 101 are static wiring checks (always runnable, no live connection needed): use `ALLOWED` when each prints `present`. For tests 102–112 (gh enablement controls and final-segment enforcement), use `BLOCKED` / `ALLOWED`, or `Not run — gh policy not yet installed` when the installed hook lacks the `gh_config_path` pre-block (see that section's prerequisite). For tests 113–116 (EspoCRM domains), use `ALLOWED`, or `Not run — EspoCRM domains not yet installed` when the deployed allowlist predates them (see that section's prerequisite). For tests 145–149, 151–155, 159 and 160 (live GitHub MCP checks), use `BLOCKED` / `ALLOWED`, or `Not run, github MCP not connected` when the server is disconnected. Test 150 is a static wiring check, `ALLOWED` when it prints `present`. Do not paste error strings or hook messages.
 - Fill the **Pass/Fail** column with the literal word `Pass` or `Fail` — ASCII only.
 - If any test expecting BLOCKED came back ALLOWED, that is a guardrail gap — call it out at the top of the Summary section with a bold `**Guardrail gap:**` prefix so a reviewer cannot miss it.
 - Keep the fenced block self-contained: no commentary inside the fence other than the table and summary; no commentary outside the fence other than (optionally) one short sentence pointing the user at the block.

@@ -51,3 +51,22 @@
 {"name":"atlassian read allowed in an allowlisted project","expect":"allow","tool_name":"mcp__atlassian__getJiraIssue","input":{"issueIdOrKey":"PLAN-1"}}
 {"name":"atlassian read denied outside ATLASSIAN_PROJECTS","expect":"deny","tool_name":"mcp__atlassian__getJiraIssue","input":{"issueIdOrKey":"VST-1"}}
 {"name":"atlassian tool not on the allowlist denied","expect":"deny","tool_name":"mcp__atlassian__search","input":{"query":"x"}}
+# --- atlassian v2 tool names --------------------------------------------------
+{"name":"atlassian v2 comment write allowed in an allowlisted project","expect":"allow","tool_name":"mcp__atlassian__addOrEditJiraIssueComment","input":{"issueIdOrKey":"PLAN-1"}}
+{"name":"atlassian v2 comment write denied outside ATLASSIAN_PROJECTS","expect":"deny","tool_name":"mcp__atlassian__addOrEditJiraIssueComment","input":{"issueIdOrKey":"VST-1"}}
+{"name":"atlassian v2 comment write with no issue key denied","expect":"deny","tool_name":"mcp__atlassian__addOrEditJiraIssueComment","input":{"issueKey":"PLAN-1"}}
+{"name":"atlassian v2 worklog write denied outside ATLASSIAN_PROJECTS","expect":"deny","tool_name":"mcp__atlassian__addOrEditJiraIssueWorklog","input":{"issueIdOrKey":"VST-1"}}
+{"name":"atlassian v2 transition list allowed in an allowlisted project","expect":"allow","tool_name":"mcp__atlassian__listJiraIssueTransitions","input":{"issueIdOrKey":"PLAN-1"}}
+{"name":"atlassian v2 remote links denied outside ATLASSIAN_PROJECTS","expect":"deny","tool_name":"mcp__atlassian__listJiraIssueRemoteIssueLinks","input":{"issueIdOrKey":"VST-1"}}
+{"name":"atlassian v2 issue types denied outside ATLASSIAN_PROJECTS","expect":"deny","tool_name":"mcp__atlassian__listJiraProjectIssueTypesMetadata","input":{"projectIdOrKey":"VST"}}
+{"name":"atlassian v2 link allowed with both ends allowlisted","expect":"allow","tool_name":"mcp__atlassian__createJiraIssueLink","input":{"inwardIssue":"PLAN-1","outwardIssue":"PLAN-2"}}
+{"name":"atlassian v2 link denied with one end outside","expect":"deny","tool_name":"mcp__atlassian__createJiraIssueLink","input":{"inwardIssue":"PLAN-1","outwardIssue":"VST-1"}}
+{"name":"atlassian v2 project list allowed","expect":"allow","tool_name":"mcp__atlassian__listJiraProjects","input":{}}
+{"name":"atlassian v2 link types allowed","expect":"allow","tool_name":"mcp__atlassian__listJiraIssueLinkTypes","input":{}}
+{"name":"atlassian v1 transition name denied","expect":"deny","tool_name":"mcp__atlassian__getTransitionsForJiraIssue","input":{"issueIdOrKey":"PLAN-1"}}
+{"name":"atlassian v1 comment name denied","expect":"deny","tool_name":"mcp__atlassian__addCommentToJiraIssue","input":{"issueIdOrKey":"PLAN-1"}}
+# --- atlassian v2 meta-tools stay denied --------------------------------------
+{"name":"atlassian discover denied","expect":"deny","tool_name":"mcp__atlassian__discover","input":{}}
+{"name":"atlassian executeRead denied","expect":"deny","tool_name":"mcp__atlassian__executeRead","input":{}}
+{"name":"atlassian executeWrite denied","expect":"deny","tool_name":"mcp__atlassian__executeWrite","input":{}}
+{"name":"atlassian executeDestructive denied","expect":"deny","tool_name":"mcp__atlassian__executeDestructive","input":{}}
