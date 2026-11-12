@@ -15,10 +15,10 @@ audit_init "mcp-policy"
 
 # Allowlist of permitted tools, keyed by server. To grant a tool, add its bare <tool>
 # segment to its server's list. Jira write tools (createJiraIssue, editJiraIssue,
-# transitionJiraIssue, addCommentToJiraIssue, addWorklogToJiraIssue, createIssueLink) are
-# allowed here but bound to ATLASSIAN_PROJECTS by project_scope_ok below, so a write
-# outside the allowlisted projects is still denied. The github write tools are bound the
-# same way to GITHUB_REPOS by repo_scope_ok. Other state-changing tools stay omitted,
+# transitionJiraIssue, addOrEditJiraIssueComment, addOrEditJiraIssueWorklog,
+# createJiraIssueLink) are allowed here but bound to ATLASSIAN_PROJECTS by
+# project_scope_ok below, so a write outside the allowlisted projects is still denied.
+# The github write tools are bound the same way to GITHUB_REPOS by repo_scope_ok. Other state-changing tools stay omitted,
 # which denies them before the call reaches the server.
 #
 # A misspelt tool name is inert, because the call denies either way. A tool that should
@@ -39,13 +39,18 @@ is_allowed() {
   local server="$1" tool="$2" allowed="" t
   case "$server" in
     atlassian)
+      # Names as the v2 endpoint lists them. managed-mcp.json connects with ?tools=all,
+      # which Atlassian documents as exposing every tool by name "without discover and
+      # execute tooling". discover, executeRead, executeWrite and executeDestructive stay
+      # omitted, because they run another tool named in their arguments and so would
+      # pass any tool this list does not name.
       allowed="getAccessibleAtlassianResources atlassianUserInfo getJiraIssue \
-               getJiraIssueRemoteIssueLinks getJiraIssueTypeMetaWithFields \
-               getJiraProjectIssueTypesMetadata getIssueLinkTypes \
-               getTransitionsForJiraIssue getVisibleJiraProjects \
+               listJiraIssueRemoteIssueLinks getJiraIssueTypeMetaWithFields \
+               listJiraProjectIssueTypesMetadata listJiraIssueLinkTypes \
+               listJiraIssueTransitions listJiraProjects \
                lookupJiraAccountId searchJiraIssuesUsingJql \
                createJiraIssue editJiraIssue transitionJiraIssue \
-               addCommentToJiraIssue addWorklogToJiraIssue createIssueLink"
+               addOrEditJiraIssueComment addOrEditJiraIssueWorklog createJiraIssueLink"
       ;;
     github)
       # Reads, plus the issue and pull request writes, which repo_scope_ok binds to
@@ -97,8 +102,8 @@ is_allowed() {
 # to these project keys; every other project is denied. Keys are compared
 # case-insensitively. EDIT THIS LIST to change which projects Claude Code may
 # read or write. An empty list denies all project-scoped calls. Cross-project
-# tools that take no project key (getVisibleJiraProjects, lookupJiraAccountId,
-# getIssueLinkTypes, and the two shared tools getAccessibleAtlassianResources /
+# tools that take no project key (listJiraProjects, lookupJiraAccountId,
+# listJiraIssueLinkTypes, and the two shared tools getAccessibleAtlassianResources /
 # atlassianUserInfo) are not bound by this list — a project allowlist cannot
 # express "list only these projects".
 ATLASSIAN_PROJECTS="PLAN DENGS DATA MJB DE DSD ED DAR KPR"
@@ -241,18 +246,21 @@ path_policy_ok() {
 
 # project_scope_ok <server> <tool> <payload> — true unless the call names a
 # Jira project/issue outside ATLASSIAN_PROJECTS. Only the atlassian server is
-# project-scoped; tools that take no project key are unaffected.
+# project-scoped; tools that take no project key are unaffected. Each branch denies
+# when its argument is absent, so a tool whose argument carries another name than
+# the one read here is denied rather than passed unscoped.
 project_scope_ok() {
   local server="$1" tool="$2" pl="$3" v proj in_v out_v in_proj out_proj
   [[ "$server" == atlassian ]] || return 0
   case "$tool" in
-    getJiraIssue | getJiraIssueRemoteIssueLinks | getTransitionsForJiraIssue | \
-    editJiraIssue | transitionJiraIssue | addCommentToJiraIssue | addWorklogToJiraIssue)
+    getJiraIssue | listJiraIssueRemoteIssueLinks | listJiraIssueTransitions | \
+    editJiraIssue | transitionJiraIssue | \
+    addOrEditJiraIssueComment | addOrEditJiraIssueWorklog)
       v="$(printf '%s' "$pl" | jq -r '.tool_input.issueIdOrKey // empty')"
       proj="$(issue_key_project "$v")"
       [[ -n "$proj" ]] && project_allowed "$proj"
       ;;
-    getJiraIssueTypeMetaWithFields|getJiraProjectIssueTypesMetadata)
+    getJiraIssueTypeMetaWithFields|listJiraProjectIssueTypesMetadata)
       v="$(printf '%s' "$pl" | jq -r '.tool_input.projectIdOrKey // empty')"
       project_allowed "$v"
       ;;
@@ -260,7 +268,7 @@ project_scope_ok() {
       v="$(printf '%s' "$pl" | jq -r '.tool_input.projectKey // empty')"
       project_allowed "$v"
       ;;
-    createIssueLink)
+    createJiraIssueLink)
       # Both ends must resolve to an allowlisted project — one out-of-scope
       # issue is enough to deny, so a link write cannot touch an issue outside
       # ATLASSIAN_PROJECTS via its other end.
