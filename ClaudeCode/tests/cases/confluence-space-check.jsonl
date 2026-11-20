@@ -10,6 +10,9 @@
 #
 # --- content in a listed space is left alone --------------------------------------
 {"name":"listed space id at top level of a text item","expect":"unset","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":{"content":[{"type":"text","text":"{\"id\":\"111\",\"spaceId\":\"5447614474\",\"title\":\"T\"}"}]}}
+{"name":"listed space id under data","expect":"unset","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":{"content":[{"type":"text","text":"{\"data\":{\"id\":\"111\",\"type\":\"page\",\"title\":\"T\",\"spaceId\":\"5447614474\",\"snapshotToken\":\"t\",\"body\":{\"value\":\"x\"}}}"}]}}
+{"name":"other space id under data replaced","expect":"block","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":{"content":[{"type":"text","text":"{\"data\":{\"id\":\"111\",\"spaceId\":\"123456\"}}"}]}}
+{"name":"space id inside the body under data is not read","expect":"block","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":{"content":[{"type":"text","text":"{\"data\":{\"id\":\"111\",\"body\":{\"spaceId\":\"5447614474\"}}}"}]}}
 {"name":"listed space id as a number","expect":"unset","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":{"content":[{"type":"text","text":"{\"id\":\"111\",\"spaceId\":5447614474}"}]}}
 {"name":"listed space id under space","expect":"unset","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":[{"type":"text","text":"{\"id\":\"111\",\"space\":{\"id\":\"5447614474\"}}"}]}
 {"name":"listed space id under metadata","expect":"unset","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":"{\"id\":\"111\",\"metadata\":{\"spaceId\":\"5447614474\"}}"}

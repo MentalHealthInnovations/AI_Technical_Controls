@@ -77,7 +77,9 @@ withhold() {
 # sends it, and the first text item, parsed as JSON. Only the first text item is read, so
 # that a later item holding a page body cannot supply the space id. From each document
 # the space id is taken from these paths and no others:
-#   .spaceId   .space.id   .metadata.spaceId   .metadata.space.id
+#   .data.spaceId   .spaceId   .space.id   .metadata.spaceId   .metadata.space.id
+# .data.spaceId is the likeliest. A listConfluenceContent result was reported from a live
+# session as carrying data.results[].spaceId, so a single page is expected under data.
 # "keys" is the list of field names to two levels, for the reason given when no space id
 # is found. It holds names only.
 verdict="$(printf '%s' "$payload" | jq -c '
@@ -97,7 +99,7 @@ verdict="$(printf '%s' "$payload" | jq -c '
       | map(select(type == "object")) ) as $docs
   | {
       ids: [ $docs[]
-             | (.spaceId?), (.space? | .id?), (.metadata? | .spaceId?), (.metadata? | .space? | .id?)
+             | (.data? | .spaceId?), (.spaceId?), (.space? | .id?), (.metadata? | .spaceId?), (.metadata? | .space? | .id?)
              | select(. != null) | tostring ],
       keys: ( [ $docs[] | paths | select(length <= 2) | map(tostring) | join(".") ]
               | unique
