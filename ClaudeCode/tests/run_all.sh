@@ -17,6 +17,7 @@ declare -a suites=(
   "pii-content-sniff.sh|pii-content-sniff.jsonl"
   "mcp-policy-check.sh|mcp-policy.jsonl"
   "output-redact.sh|output-redact.jsonl"
+  "confluence-space-check.sh|confluence-space-check.jsonl"
 )
 
 overall_fail=0

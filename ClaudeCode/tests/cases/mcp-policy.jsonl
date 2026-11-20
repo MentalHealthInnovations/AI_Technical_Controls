@@ -118,7 +118,15 @@
 {"name":"confluence delete denied","expect":"deny","tool_name":"mcp__atlassian__deleteConfluenceContent","input":{"contentId":"111"}}
 {"name":"confluence move denied","expect":"deny","tool_name":"mcp__atlassian__moveConfluenceContent","input":{"id":"111","position":"append","targetId":"222"}}
 {"name":"confluence copy denied","expect":"deny","tool_name":"mcp__atlassian__copyConfluenceContent","input":{"contentId":"111","title":"T","destinationSpaceKey":"APAD"}}
+# --- confluence page read, checked after the call by confluence-space-check.sh ---
+# The arguments name no space, so a read by any content id is allowed here. The allow
+# cases need confluence-space-check.sh to be present and executable beside the hook.
+{"name":"confluence page read by content id allowed","expect":"allow","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"}}
+{"name":"confluence page read by url as markdown allowed","expect":"allow","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_url":"https://mentalhealthinnovations.atlassian.net/wiki/spaces/APAD/pages/111","content_format":"markdown","detail":"full"}}
+{"name":"confluence page read with an access link denied","expect":"deny","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111","access_link":"https://mentalhealthinnovations.atlassian.net/wiki/access-link/abc"}}
+{"name":"confluence read as png denied","expect":"deny","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111","content_format":"png"}}
+{"name":"confluence read as csv denied","expect":"deny","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111","content_format":"csv"}}
 # --- confluence tools that name only a content id stay denied -----------------
-{"name":"confluence page read by content id denied","expect":"deny","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"}}
+{"name":"confluence version list by content id denied","expect":"deny","tool_name":"mcp__atlassian__listConfluenceContentVersions","input":{"contentId":"111"}}
 {"name":"confluence page update by content id denied","expect":"deny","tool_name":"mcp__atlassian__updateConfluenceContent","input":{"contentId":"111"}}
 {"name":"confluence version restore by content id denied","expect":"deny","tool_name":"mcp__atlassian__restoreConfluenceContentVersion","input":{"contentId":"111","versionNumber":1}}
