@@ -71,11 +71,13 @@
 {"name":"atlassian executeWrite denied","expect":"deny","tool_name":"mcp__atlassian__executeWrite","input":{}}
 {"name":"atlassian executeDestructive denied","expect":"deny","tool_name":"mcp__atlassian__executeDestructive","input":{}}
 # --- confluence calls bound to CONFLUENCE_SPACES ------------------------------
-# MPSC and the id 123456 stand for a space that is not on the list.
+# MPSC and the id 123456 stand for a space that is not on the list. PMQMS is the alias
+# of the listed space APAD, and an alias is not matched.
 {"name":"confluence space lookup by allowlisted key allowed","expect":"allow","tool_name":"mcp__atlassian__getConfluenceSpace","input":{"spaceIdOrKey":"APAD"}}
 {"name":"confluence space lookup folds key case","expect":"allow","tool_name":"mcp__atlassian__getConfluenceSpace","input":{"spaceIdOrKey":"apad"}}
 {"name":"confluence space lookup by allowlisted id allowed","expect":"allow","tool_name":"mcp__atlassian__getConfluenceSpace","input":{"spaceIdOrKey":"5447614474"}}
 {"name":"confluence space lookup by other key denied","expect":"deny","tool_name":"mcp__atlassian__getConfluenceSpace","input":{"spaceIdOrKey":"MPSC"}}
+{"name":"confluence space lookup by alias of a listed space denied","expect":"deny","tool_name":"mcp__atlassian__getConfluenceSpace","input":{"spaceIdOrKey":"PMQMS"}}
 {"name":"confluence space lookup by other id denied","expect":"deny","tool_name":"mcp__atlassian__getConfluenceSpace","input":{"spaceIdOrKey":"123456"}}
 {"name":"confluence personal space lookup denied","expect":"deny","tool_name":"mcp__atlassian__getConfluenceSpace","input":{"spaceIdOrKey":"~5b10ac8d82e05b22cc7d4ef5"}}
 {"name":"confluence space lookup with no space denied","expect":"deny","tool_name":"mcp__atlassian__getConfluenceSpace","input":{}}
@@ -85,6 +87,7 @@
 {"name":"confluence search term holding the word or allowed","expect":"allow","tool_name":"mcp__atlassian__searchConfluence","input":{"cql":"space = APAD AND title ~ \"build or buy\""}}
 {"name":"confluence search with no space clause denied","expect":"deny","tool_name":"mcp__atlassian__searchConfluence","input":{"cql":"type = page AND title ~ \"roadmap\""}}
 {"name":"confluence search in other space denied","expect":"deny","tool_name":"mcp__atlassian__searchConfluence","input":{"cql":"space = MPSC"}}
+{"name":"confluence search by alias of a listed space denied","expect":"deny","tool_name":"mcp__atlassian__searchConfluence","input":{"cql":"space = PMQMS"}}
 {"name":"confluence search across allowlisted and other space denied","expect":"deny","tool_name":"mcp__atlassian__searchConfluence","input":{"cql":"space in (APAD, MPSC)"}}
 {"name":"confluence search with OR denied","expect":"deny","tool_name":"mcp__atlassian__searchConfluence","input":{"cql":"space = APAD OR type = page"}}
 {"name":"confluence search with NOT denied","expect":"deny","tool_name":"mcp__atlassian__searchConfluence","input":{"cql":"space = APAD AND NOT type = page"}}

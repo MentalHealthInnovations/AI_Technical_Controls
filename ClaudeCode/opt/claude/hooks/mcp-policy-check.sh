@@ -204,8 +204,15 @@ jql_scope_ok() {
 # The response is JSON. Take the top-level "id" (a number) and check that "key" and
 # "name" are the space you meant. Then add KEY:ID below and a line to this table.
 #
-#   Entry             Space name
-#   APAD:5447614474   AI Product & App Development
+# Use the "key" from that response, not the "alias". Renaming a space in Confluence can
+# leave the key as it was and set an alias, which is what the space's web address then
+# shows. The first entry is an example. After it was renamed, the response still gave
+# the key APAD and the same id, with the alias PMQMS and the address /spaces/PMQMS. The
+# alias is not on this list, so a call that names PMQMS is denied. Whether Confluence
+# accepts an alias in place of a key in a search has not been tested.
+#
+#   Entry             Alias   Space name
+#   APAD:5447614474   PMQMS   Product Management & QMS (was AI Product & App Development)
 #
 # The id is held here on the assumption that Confluence keeps it fixed for the life of
 # the space, which has not been checked against Atlassian's documentation. A changed id
