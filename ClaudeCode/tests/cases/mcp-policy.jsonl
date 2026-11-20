@@ -70,3 +70,52 @@
 {"name":"atlassian executeRead denied","expect":"deny","tool_name":"mcp__atlassian__executeRead","input":{}}
 {"name":"atlassian executeWrite denied","expect":"deny","tool_name":"mcp__atlassian__executeWrite","input":{}}
 {"name":"atlassian executeDestructive denied","expect":"deny","tool_name":"mcp__atlassian__executeDestructive","input":{}}
+# --- confluence calls bound to CONFLUENCE_SPACES ------------------------------
+# MPSC and the id 123456 stand for a space that is not on the list.
+{"name":"confluence space lookup by allowlisted key allowed","expect":"allow","tool_name":"mcp__atlassian__getConfluenceSpace","input":{"spaceIdOrKey":"APAD"}}
+{"name":"confluence space lookup folds key case","expect":"allow","tool_name":"mcp__atlassian__getConfluenceSpace","input":{"spaceIdOrKey":"apad"}}
+{"name":"confluence space lookup by allowlisted id allowed","expect":"allow","tool_name":"mcp__atlassian__getConfluenceSpace","input":{"spaceIdOrKey":"5447614474"}}
+{"name":"confluence space lookup by other key denied","expect":"deny","tool_name":"mcp__atlassian__getConfluenceSpace","input":{"spaceIdOrKey":"MPSC"}}
+{"name":"confluence space lookup by other id denied","expect":"deny","tool_name":"mcp__atlassian__getConfluenceSpace","input":{"spaceIdOrKey":"123456"}}
+{"name":"confluence personal space lookup denied","expect":"deny","tool_name":"mcp__atlassian__getConfluenceSpace","input":{"spaceIdOrKey":"~5b10ac8d82e05b22cc7d4ef5"}}
+{"name":"confluence space lookup with no space denied","expect":"deny","tool_name":"mcp__atlassian__getConfluenceSpace","input":{}}
+{"name":"confluence search bounded to allowlisted space allowed","expect":"allow","tool_name":"mcp__atlassian__searchConfluence","input":{"cql":"space = APAD AND type = page ORDER BY lastmodified DESC"}}
+{"name":"confluence search with quoted key allowed","expect":"allow","tool_name":"mcp__atlassian__searchConfluence","input":{"cql":"type = page AND space = \"APAD\""}}
+{"name":"confluence search with space in list allowed","expect":"allow","tool_name":"mcp__atlassian__searchConfluence","input":{"cql":"space in (APAD) AND title ~ \"roadmap\""}}
+{"name":"confluence search term holding the word or allowed","expect":"allow","tool_name":"mcp__atlassian__searchConfluence","input":{"cql":"space = APAD AND title ~ \"build or buy\""}}
+{"name":"confluence search with no space clause denied","expect":"deny","tool_name":"mcp__atlassian__searchConfluence","input":{"cql":"type = page AND title ~ \"roadmap\""}}
+{"name":"confluence search in other space denied","expect":"deny","tool_name":"mcp__atlassian__searchConfluence","input":{"cql":"space = MPSC"}}
+{"name":"confluence search across allowlisted and other space denied","expect":"deny","tool_name":"mcp__atlassian__searchConfluence","input":{"cql":"space in (APAD, MPSC)"}}
+{"name":"confluence search with OR denied","expect":"deny","tool_name":"mcp__atlassian__searchConfluence","input":{"cql":"space = APAD OR type = page"}}
+{"name":"confluence search with NOT denied","expect":"deny","tool_name":"mcp__atlassian__searchConfluence","input":{"cql":"space = APAD AND NOT type = page"}}
+{"name":"confluence search with space clause inside a search term denied","expect":"deny","tool_name":"mcp__atlassian__searchConfluence","input":{"cql":"title ~ \"space = APAD\""}}
+{"name":"confluence search with single quote denied","expect":"deny","tool_name":"mcp__atlassian__searchConfluence","input":{"cql":"space = APAD AND title ~ 'roadmap'"}}
+{"name":"confluence search with backslash denied","expect":"deny","tool_name":"mcp__atlassian__searchConfluence","input":{"cql":"space = APAD AND title ~ \"a\\\"b\""}}
+{"name":"confluence search with unbalanced quote denied","expect":"deny","tool_name":"mcp__atlassian__searchConfluence","input":{"cql":"space = APAD AND title ~ \"roadmap"}}
+{"name":"confluence search with cqlcontext denied","expect":"deny","tool_name":"mcp__atlassian__searchConfluence","input":{"cql":"space = APAD","cqlcontext":"{\"spaceKey\":\"MPSC\"}"}}
+{"name":"confluence search with no cql denied","expect":"deny","tool_name":"mcp__atlassian__searchConfluence","input":{}}
+{"name":"confluence listing by allowlisted space id allowed","expect":"allow","tool_name":"mcp__atlassian__listConfluenceContent","input":{"type":"page","spaceId":"5447614474"}}
+{"name":"confluence listing by other space id denied","expect":"deny","tool_name":"mcp__atlassian__listConfluenceContent","input":{"type":"page","spaceId":"123456"}}
+{"name":"confluence listing by space key denied","expect":"deny","tool_name":"mcp__atlassian__listConfluenceContent","input":{"type":"page","spaceId":"APAD"}}
+{"name":"confluence listing with no space id denied","expect":"deny","tool_name":"mcp__atlassian__listConfluenceContent","input":{"type":"page"}}
+{"name":"confluence page created at allowlisted space root allowed","expect":"allow","tool_name":"mcp__atlassian__createConfluenceContent","input":{"contentType":"page","title":"T","parent":{"spaceId":"5447614474"}}}
+{"name":"confluence create with numeric space id allowed","expect":"allow","tool_name":"mcp__atlassian__createConfluenceContent","input":{"contentType":"live_doc","title":"T","parent":{"spaceId":5447614474}}}
+{"name":"confluence create in other space denied","expect":"deny","tool_name":"mcp__atlassian__createConfluenceContent","input":{"contentType":"page","title":"T","parent":{"spaceId":"123456"}}}
+{"name":"confluence create under a parent page denied","expect":"deny","tool_name":"mcp__atlassian__createConfluenceContent","input":{"contentType":"page","title":"T","parent":{"spaceId":"5447614474","parentContentId":"111"}}}
+{"name":"confluence create under a parent page alone denied","expect":"deny","tool_name":"mcp__atlassian__createConfluenceContent","input":{"contentType":"page","title":"T","parent":{"parentContentId":"111"}}}
+{"name":"confluence create under a parent url denied","expect":"deny","tool_name":"mcp__atlassian__createConfluenceContent","input":{"contentType":"page","title":"T","parent":{"parentContentUrl":"https://mentalhealthinnovations.atlassian.net/wiki/spaces/APAD/pages/111"}}}
+{"name":"confluence create with no parent denied","expect":"deny","tool_name":"mcp__atlassian__createConfluenceContent","input":{"contentType":"page","title":"T"}}
+{"name":"confluence whiteboard create denied","expect":"deny","tool_name":"mcp__atlassian__createConfluenceContent","input":{"contentType":"whiteboard","title":"T","parent":{"spaceId":"5447614474"}}}
+{"name":"confluence create with no content type denied","expect":"deny","tool_name":"mcp__atlassian__createConfluenceContent","input":{"title":"T","parent":{"spaceId":"5447614474"}}}
+# --- confluence archive, delete and cross-space tools stay denied -------------
+# deleteConfluenceContent is not a name the server is known to list. The case pins the
+# default deny for a delete tool under that name.
+{"name":"confluence archive denied","expect":"deny","tool_name":"mcp__atlassian__archiveConfluenceContent","input":{"contentId":"111"}}
+{"name":"confluence unarchive denied","expect":"deny","tool_name":"mcp__atlassian__unarchiveConfluenceContent","input":{"contentId":"111"}}
+{"name":"confluence delete denied","expect":"deny","tool_name":"mcp__atlassian__deleteConfluenceContent","input":{"contentId":"111"}}
+{"name":"confluence move denied","expect":"deny","tool_name":"mcp__atlassian__moveConfluenceContent","input":{"id":"111","position":"append","targetId":"222"}}
+{"name":"confluence copy denied","expect":"deny","tool_name":"mcp__atlassian__copyConfluenceContent","input":{"contentId":"111","title":"T","destinationSpaceKey":"APAD"}}
+# --- confluence tools that name only a content id stay denied -----------------
+{"name":"confluence page read by content id denied","expect":"deny","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"}}
+{"name":"confluence page update by content id denied","expect":"deny","tool_name":"mcp__atlassian__updateConfluenceContent","input":{"contentId":"111"}}
+{"name":"confluence version restore by content id denied","expect":"deny","tool_name":"mcp__atlassian__restoreConfluenceContentVersion","input":{"contentId":"111","versionNumber":1}}
