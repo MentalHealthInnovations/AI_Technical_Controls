@@ -272,7 +272,7 @@ This section covers how engineers use the Model Context Protocol (MCP) servers l
 
 ### Atlassian Remote MCP server
 
-**What it does.** Lets Claude Code read and update Jira issues and Confluence pages: fetch a ticket, post a comment, transition a status, or summarise a Confluence page. Useful for ticket triage, drafting comments from local code context, and pulling acceptance criteria into a working session.
+**What it does.** Lets Claude Code read and update Jira issues, and find and create content in listed Confluence spaces: fetch a ticket, post a comment, transition a status, or search a Confluence space. Confluence access is partial and does not yet cover opening or editing an existing page, as [Confluence space scoping](#confluence-space-scoping) sets out. Useful for ticket triage, drafting comments from local code context, and pulling acceptance criteria into a working session.
 
 **Endpoint.** `https://mcp.atlassian.com/v2/mcp?tools=all` (Streamable HTTP transport), set in `managed-mcp.json`. Hosted by Atlassian, so there is no local install, no API token, and no env var required on the engineer's machine. Without the parameter, v2 shows an agent only the tools Atlassian marks Primary and reaches the rest through `discover` and `execute` meta-tools ([supported tools](https://support.atlassian.com/atlassian-rovo-mcp-server/docs/supported-tools/)). `tools=all` exposes every tool by name "without `discover` and `execute` tooling" ([upgrade guide](https://support.atlassian.com/atlassian-ai-gateway/docs/how-to-upgrade-from-atlassian-mcp-v1-to-atlassian-mcp-v2/)), which lets the tool allowlist below name each tool it permits. A connection made to the v1 endpoint needs signing in again on v2, since Atlassian's upgrade guide says "you will need to reauthenticate once this update is complete".
 
@@ -338,7 +338,16 @@ Each entry is `KEY:ID`, the space key and the numeric space id, because the tool
 
 **Adding a space.** Open `https://mentalhealthinnovations.atlassian.net/wiki/rest/api/space/KEY` in a browser while signed in to Confluence, with the space key in place of `KEY`. The response is JSON. Take the top-level `id` and check that `key` and `name` are the space you meant. Then add `KEY:ID` to `CONFLUENCE_SPACES`, add the space to the table in the comment above the list, and redeploy the hook. The hook holds the id on the assumption that Confluence keeps it fixed for the life of the space, which has not been checked against Atlassian's documentation. A changed id fails closed, because the calls that name it are then denied.
 
-**What the scope does not reach.** The Confluence tools that read or change an existing page (`getConfluenceContent`, `updateConfluenceContent`, and the version, comment, descendant and ancestor tools) take only a numeric content id. Their arguments do not say which space the content is in, and the hook cannot ask Atlassian, so it cannot bind them to a space. They are left off the tool allowlist for that reason. Claude Code can therefore find and list content in a listed space and create content at its root, but cannot open or edit an existing page by id.
+**Current limitations.** Confluence access is partial. In a listed space, Claude Code can:
+
+- look up the space
+- search it
+- list its content
+- create pages, live docs, blog posts and folders at the space root
+
+It cannot open, edit or comment on an existing page, create content under a parent page, or read or restore a page's version history. The tools for those (`getConfluenceContent`, `updateConfluenceContent`, and the version, comment, descendant and ancestor tools) take only a numeric content id. Their arguments do not say which space the content is in, and the hook cannot ask Atlassian, so it cannot bind them to a space. They are left off the tool allowlist for that reason.
+
+**More work is required before page edits can be allowed.** The hook first needs a way to tie a content id to a listed space. Edits should then go through the Confluence version model, so that each one is made as a new page version with a version message and can be compared with, or restored from, the versions before it. Until that work is done, edit existing pages in Confluence itself.
 
 **Archiving and deleting stay with a person.** `archiveConfluenceContent`, `unarchiveConfluenceContent` and any delete tool are left off the tool allowlist, so the default deny blocks them. So are `moveConfluenceContent` and `copyConfluenceContent`, because either can carry content across a space boundary. Archive or delete content in the Confluence space itself.
 

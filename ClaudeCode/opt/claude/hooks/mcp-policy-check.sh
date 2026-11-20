@@ -46,12 +46,17 @@ is_allowed() {
       # pass any tool this list does not name.
       #
       # The Confluence tools listed are the ones whose arguments name a space, so that
-      # confluence_scope_ok below can bind each call to CONFLUENCE_SPACES. Omitted on
+      # confluence_scope_ok below can bind each call to CONFLUENCE_SPACES. Confluence
+      # access is therefore partial. In a listed space Claude Code can look up the
+      # space, search it, list its content, and create pages, live docs, blog posts and
+      # folders at the space root. It cannot open or edit an existing page. Omitted on
       # purpose:
       #   The tools that take only a content id (getConfluenceContent,
       #     updateConfluenceContent, the version, comment, descendant and ancestor
       #     tools), because the arguments do not say which space the content is in and
-      #     this hook cannot ask Atlassian.
+      #     this hook cannot ask Atlassian. More work is required before page edits can
+      #     be allowed. The hook needs a way to tie a content id to a listed space, and
+      #     the edits should then go through the Confluence version model.
       #   archiveConfluenceContent, unarchiveConfluenceContent and any delete tool,
       #     because archiving and deleting stay with a person in the Confluence space.
       #   moveConfluenceContent and copyConfluenceContent, because either can carry
