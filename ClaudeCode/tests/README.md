@@ -34,7 +34,7 @@ Optional: `tool_name`, for hooks that branch on it. The MCP cases need it, becau
 
 ## MCP policy tests
 
-`cases/mcp-policy.jsonl` covers [mcp-policy-check.sh](../opt/claude/hooks/mcp-policy-check.sh): the per-server tool allowlist, the Jira project scope, and the GitHub repository scope, review-event check and PII path check. It runs without a connected MCP server, so CI verifies the deny logic that `/test-guardrails` can otherwise only check live. Cases that expect `allow` assert an explicit allow, which the hook emits for every permitted tool.
+`cases/mcp-policy.jsonl` covers [mcp-policy-check.sh](../opt/claude/hooks/mcp-policy-check.sh): the per-server tool allowlist, the Jira project scope, the Confluence space scope, and the GitHub repository scope, review-event check and PII path check. It runs without a connected MCP server, so CI verifies the deny logic that `/test-guardrails` can otherwise only check live. Cases that expect `allow` assert an explicit allow, which the hook emits for every permitted tool.
 
 ## Output redaction tests
 

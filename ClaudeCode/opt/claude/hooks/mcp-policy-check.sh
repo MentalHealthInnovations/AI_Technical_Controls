@@ -44,13 +44,32 @@ is_allowed() {
       # execute tooling". discover, executeRead, executeWrite and executeDestructive stay
       # omitted, because they run another tool named in their arguments and so would
       # pass any tool this list does not name.
+      #
+      # The Confluence tools listed are the ones whose arguments name a space, so that
+      # confluence_scope_ok below can bind each call to CONFLUENCE_SPACES. Confluence
+      # access is therefore partial. In a listed space Claude Code can look up the
+      # space, search it, list its content, and create pages, live docs, blog posts and
+      # folders at the space root. It cannot open or edit an existing page. Omitted on
+      # purpose:
+      #   The tools that take only a content id (getConfluenceContent,
+      #     updateConfluenceContent, the version, comment, descendant and ancestor
+      #     tools), because the arguments do not say which space the content is in and
+      #     this hook cannot ask Atlassian. More work is required before page edits can
+      #     be allowed. The hook needs a way to tie a content id to a listed space, and
+      #     the edits should then go through the Confluence version model.
+      #   archiveConfluenceContent, unarchiveConfluenceContent and any delete tool,
+      #     because archiving and deleting stay with a person in the Confluence space.
+      #   moveConfluenceContent and copyConfluenceContent, because either can carry
+      #     content across a space boundary.
       allowed="getAccessibleAtlassianResources atlassianUserInfo getJiraIssue \
                listJiraIssueRemoteIssueLinks getJiraIssueTypeMetaWithFields \
                listJiraProjectIssueTypesMetadata listJiraIssueLinkTypes \
                listJiraIssueTransitions listJiraProjects \
                lookupJiraAccountId searchJiraIssuesUsingJql \
                createJiraIssue editJiraIssue transitionJiraIssue \
-               addOrEditJiraIssueComment addOrEditJiraIssueWorklog createJiraIssueLink"
+               addOrEditJiraIssueComment addOrEditJiraIssueWorklog createJiraIssueLink \
+               getConfluenceSpace searchConfluence listConfluenceContent \
+               createConfluenceContent"
       ;;
     github)
       # Reads, plus the issue and pull request writes, which repo_scope_ok binds to
@@ -97,7 +116,7 @@ is_allowed() {
   return 1
 }
 
-# --- Atlassian project (space) allowlist -------------------------------------
+# --- Jira project allowlist ---------------------------------------------------
 # Tools that name a Jira project or issue — reads and writes alike — are scoped
 # to these project keys; every other project is denied. Keys are compared
 # case-insensitively. EDIT THIS LIST to change which projects Claude Code may
@@ -166,6 +185,150 @@ jql_scope_ok() {
   done < <(printf '%s' "$jql" | grep -oiE 'project[[:space:]]+in[[:space:]]*\([^)]*\)')
 
   [[ "$found" -eq 1 ]]
+}
+
+# --- Confluence space allowlist ----------------------------------------------
+# Confluence tools that name a space are bound to these spaces, and every other space is
+# denied. This list is separate from ATLASSIAN_PROJECTS because Jira project keys and
+# Confluence space keys are different namespaces, so one shared list would grant a Jira
+# project and a Confluence space that happen to share a key. An empty list denies every
+# space-scoped Confluence call.
+#
+# Each entry is KEY:ID, with no spaces. Both halves are needed, because the tools do not
+# agree on which one they take. getConfluenceSpace and a searchConfluence query name the
+# key, and listConfluenceContent and createConfluenceContent name the numeric space id.
+#
+# To add a space, look its id up by opening this address in a browser while signed in to
+# Confluence, with the space key in place of KEY:
+#   https://mentalhealthinnovations.atlassian.net/wiki/rest/api/space/KEY
+# The response is JSON. Take the top-level "id" (a number) and check that "key" and
+# "name" are the space you meant. Then add KEY:ID below and a line to this table.
+#
+# A renamed space can answer to two names. Renaming a space in Confluence can leave the
+# "key" as it was and set an "alias", which is what the space's web address then shows.
+# The response carries both. This list matches names exactly, so a name is allowed only
+# if it has its own entry, and a space with a key and an alias needs one entry for each,
+# both with the same id. The space below is an example. After it was renamed, the
+# response still gave the key APAD and the same id, with the alias PMQMS and the address
+# /spaces/PMQMS, and the lookup address with PMQMS in place of KEY returned that same
+# id. Whether a search accepts the alias in a space clause has not been tested.
+#
+#   Entry              Space name
+#   PMQMS:5447614474   Product Management & QMS (alias, set when the space was renamed)
+#   APAD:5447614474    The same space by its key (was AI Product & App Development)
+#
+# The id is held here on the assumption that Confluence keeps it fixed for the life of
+# the space, which has not been checked against Atlassian's documentation. A changed id
+# fails closed, because the calls that name it are then denied.
+CONFLUENCE_SPACES="PMQMS:5447614474 APAD:5447614474"
+
+# confluence_key_allowed <key>. True iff <key> (any case) is an alphanumeric space key
+# with an entry in CONFLUENCE_SPACES. A personal space key (~accountId) fails the key
+# shape and is denied.
+confluence_key_allowed() {
+  local want entry
+  want="$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"
+  [[ "$want" =~ ^[A-Z][A-Z0-9_]*$ ]] || return 1
+  for entry in $CONFLUENCE_SPACES; do
+    [[ "$(printf '%s' "${entry%%:*}" | tr '[:lower:]' '[:upper:]')" == "$want" ]] && return 0
+  done
+  return 1
+}
+
+# confluence_space_id_allowed <id>. True iff <id> is all digits and is the id half of an
+# entry in CONFLUENCE_SPACES.
+confluence_space_id_allowed() {
+  local entry
+  [[ "$1" =~ ^[0-9]+$ ]] || return 1
+  for entry in $CONFLUENCE_SPACES; do
+    [[ "$entry" == *:* && "${entry#*:}" == "$1" ]] && return 0
+  done
+  return 1
+}
+
+# cql_scope_ok <cql>. True iff the Confluence Query Language (CQL) query is bounded to
+# allowlisted spaces. The rule is the one jql_scope_ok applies: an AND-only query (no OR,
+# no NOT) carrying a `space = KEY` or `space in (KEY, ...)` clause that names only
+# allowlisted keys. Everything else is denied.
+#
+# Quoted strings are taken out before the query is examined, so that a clause written
+# inside a search term, as in title ~ "space = APAD", cannot stand in for a real one. A
+# quoted bare key, as in space = "APAD", is kept as the key. A single quote or a
+# backslash denies the query, because either could make this function pair up the
+# quotes differently from the way Confluence does.
+cql_scope_ok() {
+  local cql="$1" norm inside k found=0
+  [[ -n "$cql" ]] || return 1
+  [[ "$cql" != *"'"* && "$cql" != *\\* ]] || return 1
+  norm="$(printf '%s' "$cql" | jq -Rrs '
+    gsub("\"(?<s>[^\"]*)\""; if (.s | test("^[A-Za-z0-9_]+$")) then .s else " " end)
+  ' 2>/dev/null)" || return 1
+  # A quote left over is unbalanced.
+  [[ -n "$norm" && "$norm" != *\"* ]] || return 1
+  printf '%s' "$norm" | grep -iqwE 'or|not' && return 1
+  # Explicit space negation.
+  printf '%s' "$norm" | grep -iqE '(^|[^A-Za-z0-9_.])space[[:space:]]*!=' && return 1
+
+  # space = KEY
+  while IFS= read -r k; do
+    confluence_key_allowed "$k" || return 1
+    found=1
+  done < <(printf '%s' "$norm" \
+             | grep -oiE '(^|[^A-Za-z0-9_.])space[[:space:]]*=[[:space:]]*[A-Za-z0-9_]+' \
+             | sed -E 's/.*=[[:space:]]*//')
+
+  # space in (KEY, KEY, ...)
+  while IFS= read -r inside; do
+    inside="${inside#*\(}"; inside="${inside%\)}"
+    inside="${inside//,/ }"
+    for k in $inside; do
+      confluence_key_allowed "$k" || return 1
+      found=1
+    done
+  done < <(printf '%s' "$norm" \
+             | grep -oiE '(^|[^A-Za-z0-9_.])space[[:space:]]+in[[:space:]]*\([^)]*\)')
+
+  [[ "$found" -eq 1 ]]
+}
+
+# confluence_scope_ok <server> <tool> <payload>. True unless a Confluence call names a
+# space outside CONFLUENCE_SPACES. Each branch denies when its argument is absent, so a
+# call that carries the space under another name is denied instead of passed unscoped.
+confluence_scope_ok() {
+  local server="$1" tool="$2" pl="$3" v
+  [[ "$server" == atlassian ]] || return 0
+  case "$tool" in
+    getConfluenceSpace)
+      v="$(printf '%s' "$pl" | jq -r '.tool_input.spaceIdOrKey // empty | tostring')"
+      confluence_key_allowed "$v" || confluence_space_id_allowed "$v"
+      ;;
+    searchConfluence)
+      # cqlcontext is a second way to set the scope of a search. It is denied so that
+      # the cql clause is the only one to check.
+      printf '%s' "$pl" | jq -e '.tool_input | has("cqlcontext") | not' >/dev/null || return 1
+      v="$(printf '%s' "$pl" | jq -r '.tool_input.cql // empty')"
+      cql_scope_ok "$v"
+      ;;
+    listConfluenceContent)
+      v="$(printf '%s' "$pl" | jq -r '.tool_input.spaceId // empty | tostring')"
+      confluence_space_id_allowed "$v"
+      ;;
+    createConfluenceContent)
+      # The parent must be the space itself, named by id and nothing else. A parent
+      # page (parentContentId or parentContentUrl) is denied, because a content id does
+      # not say which space it is in.
+      printf '%s' "$pl" | jq -e '.tool_input.parent | type == "object" and keys == ["spaceId"]' >/dev/null || return 1
+      v="$(printf '%s' "$pl" | jq -r '.tool_input.parent.spaceId // empty | tostring')"
+      confluence_space_id_allowed "$v" || return 1
+      # Only the types that keep a version history, plus folders. The Confluence version
+      # tools cover pages, live docs and blog posts, not whiteboards or databases.
+      v="$(printf '%s' "$pl" | jq -r '.tool_input.contentType // empty')"
+      [[ "$v" == page || "$v" == live_doc || "$v" == blogpost || "$v" == folder ]]
+      ;;
+    *)
+      return 0
+      ;;
+  esac
 }
 
 # --- GitHub repository allowlist ---------------------------------------------
@@ -320,6 +483,10 @@ if is_allowed "$server" "$tool"; then
   # Tool is permitted; now scope project-bearing reads to ATLASSIAN_PROJECTS.
   if ! project_scope_ok "$server" "$tool" "$payload"; then
     emit_deny "project_not_in_allowlist" "Jira project not in the policy allowlist for this server"
+  fi
+  # And space-bearing Confluence calls to CONFLUENCE_SPACES.
+  if ! confluence_scope_ok "$server" "$tool" "$payload"; then
+    emit_deny "space_not_in_allowlist" "Confluence space not in the policy allowlist for this server"
   fi
   # A pull request approval stays with a person. Checked before the repository
   # scope so the deny reason names this layer even for an out-of-scope repository.
