@@ -1,0 +1,33 @@
+# Cases for confluence-space-check.sh, a PostToolUse hook. Fields: name, expect
+# (block|unset), tool_name, input (the tool_input object), response (the tool_response).
+#
+# "block" means the hook replaced the tool output. "unset" means it left the output as
+# the tool returned it. 5447614474 is a listed space id and 123456 is not.
+#
+# The response shapes here are made up. The real shape of a getConfluenceContent
+# response has not been seen, so these cases pin the hook's rules and not Atlassian's
+# format.
+#
+# --- content in a listed space is left alone --------------------------------------
+{"name":"listed space id at top level of a text item","expect":"unset","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":{"content":[{"type":"text","text":"{\"id\":\"111\",\"spaceId\":\"5447614474\",\"title\":\"T\"}"}]}}
+{"name":"listed space id as a number","expect":"unset","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":{"content":[{"type":"text","text":"{\"id\":\"111\",\"spaceId\":5447614474}"}]}}
+{"name":"listed space id under space","expect":"unset","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":[{"type":"text","text":"{\"id\":\"111\",\"space\":{\"id\":\"5447614474\"}}"}]}
+{"name":"listed space id under metadata","expect":"unset","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":"{\"id\":\"111\",\"metadata\":{\"spaceId\":\"5447614474\"}}"}
+{"name":"listed space id in a bare object response","expect":"unset","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":{"id":"111","spaceId":"5447614474"}}
+{"name":"listed space id in structuredContent","expect":"unset","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":{"structuredContent":{"spaceId":"5447614474"},"content":[{"type":"text","text":"not json"}]}}
+# --- content in another space is replaced ------------------------------------------
+{"name":"other space id replaced","expect":"block","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":{"content":[{"type":"text","text":"{\"id\":\"111\",\"spaceId\":\"123456\"}"}]}}
+{"name":"other space id under space replaced","expect":"block","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":[{"type":"text","text":"{\"space\":{\"id\":123456,\"key\":\"MPSC\"}}"}]}
+{"name":"listed and other space id together replaced","expect":"block","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":{"structuredContent":{"spaceId":"123456"},"content":[{"type":"text","text":"{\"spaceId\":\"5447614474\"}"}]}}
+# --- a space id that cannot be found is replaced -----------------------------------
+{"name":"no space id replaced","expect":"block","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":{"content":[{"type":"text","text":"{\"id\":\"111\",\"title\":\"T\"}"}]}}
+{"name":"listed space key without an id replaced","expect":"block","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":{"content":[{"type":"text","text":"{\"id\":\"111\",\"space\":{\"key\":\"APAD\"}}"}]}}
+{"name":"text that is not json replaced","expect":"block","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":{"content":[{"type":"text","text":"# A page\nspaceId 5447614474"}]}}
+{"name":"space id in a later text item is not read","expect":"block","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":{"content":[{"type":"text","text":"# A page"},{"type":"text","text":"{\"spaceId\":\"5447614474\"}"}]}}
+{"name":"space id inside the page body is not read","expect":"block","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":{"content":[{"type":"text","text":"{\"id\":\"111\",\"body\":{\"value\":\"{\\\"spaceId\\\":\\\"5447614474\\\"}\",\"spaceId\":\"5447614474\"}}"}]}}
+{"name":"space id that is not a number replaced","expect":"block","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":{"content":[{"type":"text","text":"{\"spaceId\":\"5447614474 \"}"}]}}
+{"name":"null response replaced","expect":"block","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":null}
+{"name":"empty string response replaced","expect":"block","tool_name":"mcp__atlassian__getConfluenceContent","input":{"content_id":"111"},"response":""}
+# --- other tools are left alone ------------------------------------------------------
+{"name":"another atlassian tool is not checked","expect":"unset","tool_name":"mcp__atlassian__getJiraIssue","input":{"issueIdOrKey":"PLAN-1"},"response":{"content":[{"type":"text","text":"{\"key\":\"PLAN-1\"}"}]}}
+{"name":"a non-MCP tool is not checked","expect":"unset","tool_name":"Bash","input":{"command":"ls"},"response":{"stdout":"x"}}

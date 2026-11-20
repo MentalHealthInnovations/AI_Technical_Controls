@@ -11,6 +11,8 @@ set -u
 HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/audit-log.sh
 source "$HOOK_DIR/lib/audit-log.sh"
+# shellcheck source=lib/confluence-spaces.sh
+source "$HOOK_DIR/lib/confluence-spaces.sh"
 audit_init "mcp-policy"
 
 # Allowlist of permitted tools, keyed by server. To grant a tool, add its bare <tool>
@@ -45,18 +47,19 @@ is_allowed() {
       # omitted, because they run another tool named in their arguments and so would
       # pass any tool this list does not name.
       #
-      # The Confluence tools listed are the ones whose arguments name a space, so that
-      # confluence_scope_ok below can bind each call to CONFLUENCE_SPACES. Confluence
-      # access is therefore partial. In a listed space Claude Code can look up the
-      # space, search it, list its content, and create pages, live docs, blog posts and
-      # folders at the space root. It cannot open or edit an existing page. Omitted on
-      # purpose:
-      #   The tools that take only a content id (getConfluenceContent,
-      #     updateConfluenceContent, the version, comment, descendant and ancestor
-      #     tools), because the arguments do not say which space the content is in and
-      #     this hook cannot ask Atlassian. More work is required before page edits can
-      #     be allowed. The hook needs a way to tie a content id to a listed space, and
-      #     the edits should then go through the Confluence version model.
+      # Four of the Confluence tools listed carry the space in their arguments, so that
+      # confluence_scope_ok below can bind each call to CONFLUENCE_SPACES before it is
+      # made. getConfluenceContent does not. It names only a content id, so the space is
+      # checked after the read, by the PostToolUse hook confluence-space-check.sh, which
+      # replaces the result unless the page is in a listed space. Confluence access is
+      # still partial. In a listed space Claude Code can look up the space, search it,
+      # list its content, read a page, and create pages, live docs, blog posts and
+      # folders at the space root. It cannot edit an existing page. Omitted on purpose:
+      #   updateConfluenceContent and the version, comment, descendant and ancestor
+      #     tools, which take only a content id. A check after the call is too late for
+      #     a write, so more work is required before page edits can be allowed. The hook
+      #     needs a way to tie a content id to a listed space before the edit is made,
+      #     and the edits should then go through the Confluence version model.
       #   archiveConfluenceContent, unarchiveConfluenceContent and any delete tool,
       #     because archiving and deleting stay with a person in the Confluence space.
       #   moveConfluenceContent and copyConfluenceContent, because either can carry
@@ -69,7 +72,7 @@ is_allowed() {
                createJiraIssue editJiraIssue transitionJiraIssue \
                addOrEditJiraIssueComment addOrEditJiraIssueWorklog createJiraIssueLink \
                getConfluenceSpace searchConfluence listConfluenceContent \
-               createConfluenceContent"
+               createConfluenceContent getConfluenceContent"
       ;;
     github)
       # Reads, plus the issue and pull request writes, which repo_scope_ok binds to
@@ -188,63 +191,9 @@ jql_scope_ok() {
 }
 
 # --- Confluence space allowlist ----------------------------------------------
-# Confluence tools that name a space are bound to these spaces, and every other space is
-# denied. This list is separate from ATLASSIAN_PROJECTS because Jira project keys and
-# Confluence space keys are different namespaces, so one shared list would grant a Jira
-# project and a Confluence space that happen to share a key. An empty list denies every
-# space-scoped Confluence call.
-#
-# Each entry is KEY:ID, with no spaces. Both halves are needed, because the tools do not
-# agree on which one they take. getConfluenceSpace and a searchConfluence query name the
-# key, and listConfluenceContent and createConfluenceContent name the numeric space id.
-#
-# To add a space, look its id up by opening this address in a browser while signed in to
-# Confluence, with the space key in place of KEY:
-#   https://mentalhealthinnovations.atlassian.net/wiki/rest/api/space/KEY
-# The response is JSON. Take the top-level "id" (a number) and check that "key" and
-# "name" are the space you meant. Then add KEY:ID below and a line to this table.
-#
-# A renamed space can answer to two names. Renaming a space in Confluence can leave the
-# "key" as it was and set an "alias", which is what the space's web address then shows.
-# The response carries both. This list matches names exactly, so a name is allowed only
-# if it has its own entry, and a space with a key and an alias needs one entry for each,
-# both with the same id. The space below is an example. After it was renamed, the
-# response still gave the key APAD and the same id, with the alias PMQMS and the address
-# /spaces/PMQMS, and the lookup address with PMQMS in place of KEY returned that same
-# id. Whether a search accepts the alias in a space clause has not been tested.
-#
-#   Entry              Space name
-#   PMQMS:5447614474   Product Management & QMS (alias, set when the space was renamed)
-#   APAD:5447614474    The same space by its key (was AI Product & App Development)
-#
-# The id is held here on the assumption that Confluence keeps it fixed for the life of
-# the space, which has not been checked against Atlassian's documentation. A changed id
-# fails closed, because the calls that name it are then denied.
-CONFLUENCE_SPACES="PMQMS:5447614474 APAD:5447614474"
-
-# confluence_key_allowed <key>. True iff <key> (any case) is an alphanumeric space key
-# with an entry in CONFLUENCE_SPACES. A personal space key (~accountId) fails the key
-# shape and is denied.
-confluence_key_allowed() {
-  local want entry
-  want="$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"
-  [[ "$want" =~ ^[A-Z][A-Z0-9_]*$ ]] || return 1
-  for entry in $CONFLUENCE_SPACES; do
-    [[ "$(printf '%s' "${entry%%:*}" | tr '[:lower:]' '[:upper:]')" == "$want" ]] && return 0
-  done
-  return 1
-}
-
-# confluence_space_id_allowed <id>. True iff <id> is all digits and is the id half of an
-# entry in CONFLUENCE_SPACES.
-confluence_space_id_allowed() {
-  local entry
-  [[ "$1" =~ ^[0-9]+$ ]] || return 1
-  for entry in $CONFLUENCE_SPACES; do
-    [[ "$entry" == *:* && "${entry#*:}" == "$1" ]] && return 0
-  done
-  return 1
-}
+# The list of spaces, CONFLUENCE_SPACES, and the two functions that match a key or an id
+# against it live in lib/confluence-spaces.sh, sourced at the top of this file. They are
+# shared with confluence-space-check.sh. To add a space, edit the list there.
 
 # cql_scope_ok <cql>. True iff the Confluence Query Language (CQL) query is bounded to
 # allowlisted spaces. The rule is the one jql_scope_ok applies: an AND-only query (no OR,
@@ -324,6 +273,20 @@ confluence_scope_ok() {
       # tools cover pages, live docs and blog posts, not whiteboards or databases.
       v="$(printf '%s' "$pl" | jq -r '.tool_input.contentType // empty')"
       [[ "$v" == page || "$v" == live_doc || "$v" == blogpost || "$v" == folder ]]
+      ;;
+    getConfluenceContent)
+      # The arguments name a content id, not a space, so nothing here can bind the call
+      # to a space. confluence-space-check.sh does that after the read. This branch
+      # checks only what can be checked beforehand.
+      #
+      # That hook must be present, or a page from any space would reach the session.
+      [[ -x "$HOOK_DIR/confluence-space-check.sh" ]] || return 1
+      # An access link is another route to content, so it is denied.
+      printf '%s' "$pl" | jq -e '.tool_input | has("access_link") | not' >/dev/null || return 1
+      # Document formats only. The other formats are for whiteboards, databases and
+      # embeds, and png answers with a download address in place of the content.
+      v="$(printf '%s' "$pl" | jq -r '.tool_input.content_format // "html"')"
+      [[ "$v" == html || "$v" == markdown ]]
       ;;
     *)
       return 0

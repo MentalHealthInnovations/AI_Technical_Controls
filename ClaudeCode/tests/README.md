@@ -36,6 +36,10 @@ Optional: `tool_name`, for hooks that branch on it. The MCP cases need it, becau
 
 `cases/mcp-policy.jsonl` covers [mcp-policy-check.sh](../opt/claude/hooks/mcp-policy-check.sh): the per-server tool allowlist, the Jira project scope, the Confluence space scope, and the GitHub repository scope, review-event check and PII path check. It runs without a connected MCP server, so CI verifies the deny logic that `/test-guardrails` can otherwise only check live. Cases that expect `allow` assert an explicit allow, which the hook emits for every permitted tool.
 
+## Confluence space check tests
+
+`cases/confluence-space-check.jsonl` drives [confluence-space-check.sh](../opt/claude/hooks/confluence-space-check.sh) with PostToolUse payloads, carried in the `response` field. It expects `block` when the hook replaces the result of a page read and `unset` when it leaves the result alone. The response shapes in the cases are made up, because the real shape of the tool's response had not been seen when they were written. The runner checks the hook's `decision` field only, not the replacement it sends.
+
 ## Output redaction tests
 
 `cases/output-redact.jsonl` drives [output-redact.sh](../opt/claude/hooks/output-redact.sh) with full PostToolUse payloads, carried in the `response` field, and expects `block` when the hook rewrites the output. It covers which tools the hook scans and which response shapes it can read, including the MCP shapes. The patterns themselves are covered by `cases/redact.jsonl`, which `run_redact_cases.sh` runs against the library directly.

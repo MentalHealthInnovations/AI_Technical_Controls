@@ -418,6 +418,15 @@
             "command": "/opt/claude/hooks/output-redact.sh"
           }
         ]
+      },
+      {
+        "matcher": "mcp__atlassian__getConfluenceContent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/claude/hooks/confluence-space-check.sh"
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
